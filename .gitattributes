@@ -1,0 +1,6 @@
+# Improve GitHub language stats for this repo
+# Treat lock files and built/vendor assets as generated
+frontend/package-lock.json linguist-generated=true
+
+# Keep styles in repo but exclude from primary language calculation
+frontend/src/*.css linguist-detectable=false
