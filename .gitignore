@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+logs/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/.vite/
+
+# Frontend dependencies (also ignored in frontend/.gitignore)
+frontend/node_modules/
+
+# Backend dependencies and build artifacts
+backend/node_modules/
+backend/dist/
+backend/build/
+
+# IDE/editor
+.vscode/
+.idea/
