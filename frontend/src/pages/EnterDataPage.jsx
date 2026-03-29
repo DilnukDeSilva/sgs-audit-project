@@ -1,15 +1,24 @@
-import { useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+
 export default function EnterDataPage() {
   const navigate = useNavigate()
-  const { user, logout } = useAuth()
+  const { user, logout, token } = useAuth()
   const fileInputRef = useRef(null)
 
   const [uploadedFile, setUploadedFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadResult, setUploadResult] = useState(null)
+  const [uploadError, setUploadError] = useState('')
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
   const [analysing, setAnalysing] = useState(false)
   const [analyseResult, setAnalyseResult] = useState(null)
+  const [rowAiByType, setRowAiByType] = useState({})
+  const [rowAiLoading, setRowAiLoading] = useState(null)
 
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??'
 
@@ -18,38 +27,188 @@ export default function EnterDataPage() {
     navigate('/login', { replace: true })
   }
 
-  function handleDownloadTemplate() {
-    // Placeholder: replace with a real file URL when ready
-    const csvContent = 'Audit ID,Date,Category,Description,Status,Notes\n'
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'audit_template.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+  async function handleDownloadTemplate() {
+    setDownloading(true)
+    setDownloadError('')
+    try {
+      const res = await fetch(`${BASE_URL}/api/templates/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.message || 'Download failed.')
+      }
+      // Derive filename from Content-Disposition header if present
+      const disposition = res.headers.get('Content-Disposition') || ''
+      const match = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)["']?/)
+      const filename = match ? match[1] : 'audit_template'
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setDownloadError(err.message)
+    } finally {
+      setDownloading(false)
+    }
   }
 
   function handleFileChange(e) {
     const file = e.target.files[0]
-    if (file) setUploadedFile(file)
+    if (file) {
+      setUploadedFile(file)
+      setUploadResult(null)
+      setUploadError('')
+      setAnalyseResult(null)
+      setRowAiByType({})
+    }
+  }
+
+  async function runAnalysis(uploadId) {
+    setAnalysing(true)
+    setAnalyseResult(null)
+    setRowAiByType({})
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/data/uploads/${uploadId}/analyse/fixed-assets`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Analysis failed.')
+      // Persist both IDs: analysis_id (preferred) and fallback uploadId
+      setAnalyseResult({
+        ...data,
+        _analysisId: data.analysis_id || uploadId,
+        _uploadId: uploadId,
+      })
+    } catch (err) {
+      setAnalyseResult({ error: err.message })
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  async function handleUpload() {
+    if (!uploadedFile) return
+    setUploading(true)
+    setUploadError('')
+    setUploadResult(null)
+    setAnalyseResult(null)
+    setRowAiByType({})
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadedFile)
+      const res = await fetch(`${BASE_URL}/api/data/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Upload failed.')
+      setUploadResult(data.upload)
+      // Automatically analyse right after upload
+      await runAnalysis(data.upload.id)
+    } catch (err) {
+      setUploadError(err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function handleDownloadText() {
+    if (!uploadResult) return
+    const res = await fetch(`${BASE_URL}/api/data/uploads/${uploadResult.id}/text`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${uploadResult.filename.replace(/\.[^.]+$/, '')}_extracted.txt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleAnalyse() {
-    if (!uploadedFile) {
-      alert('Please upload a filled document before analysing.')
-      return
+    if (!uploadResult) return
+    await runAnalysis(uploadResult.id)
+  }
+
+  useEffect(() => {
+    const id = analyseResult?._analysisId || analyseResult?._uploadId
+    if (!id || analyseResult?.error) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/ai/analyses/${id}/categorise`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled || !data.per_type_summaries?.length) return
+        const map = {}
+        for (const s of data.per_type_summaries) {
+          map[s.type] = {
+            ai_response: s.ai_response,
+            model: s.model,
+            unique_uses_sent: s.unique_uses_sent,
+          }
+        }
+        setRowAiByType(map)
+      } catch {
+        /* no saved summaries */
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    setAnalysing(true)
-    setAnalyseResult(null)
-    // Placeholder: wire up to real backend endpoint when ready
-    await new Promise((r) => setTimeout(r, 1500))
-    setAnalysing(false)
-    setAnalyseResult({
-      filename: uploadedFile.name,
-      rows: '—',
-      status: 'Ready for processing',
+  }, [analyseResult?._analysisId, analyseResult?._uploadId, analyseResult?.error, token])
+
+  async function handleAiForType(assetType) {
+    const analysisId = analyseResult?._analysisId || analyseResult?._uploadId || uploadResult?.id
+    if (!analysisId) return
+    setRowAiLoading(assetType)
+    setRowAiByType((prev) => {
+      const next = { ...prev }
+      if (next[assetType]) {
+        next[assetType] = { ...next[assetType], error: undefined }
+      }
+      return next
     })
+    try {
+      const res = await fetch(`${BASE_URL}/api/ai/analyses/${analysisId}/categorise-type`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ asset_type: assetType }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'AI request failed.')
+      setRowAiByType((prev) => ({
+        ...prev,
+        [assetType]: {
+          ai_response: data.ai_response,
+          model: data.model,
+          unique_uses_sent: data.unique_uses_sent,
+        },
+      }))
+    } catch (err) {
+      setRowAiByType((prev) => ({
+        ...prev,
+        [assetType]: {
+          ...prev[assetType],
+          error: err.message,
+        },
+      }))
+    } finally {
+      setRowAiLoading(null)
+    }
   }
 
   return (
@@ -87,11 +246,16 @@ export default function EnterDataPage() {
             <div className="ed-card-icon">📥</div>
             <h3 className="ed-card-title">Download Template</h3>
             <p className="ed-card-desc">
-              Get the standard CSV template to fill in your audit data.
+              Get the standard audit template file(s) to fill in your data.
             </p>
-            <button className="btn-ed btn-ed-outline" onClick={handleDownloadTemplate}>
-              Download Template
+            <button
+              className="btn-ed btn-ed-outline"
+              onClick={handleDownloadTemplate}
+              disabled={downloading}
+            >
+              {downloading ? <><span className="btn-spinner btn-spinner-accent" /> Downloading…</> : 'Download Template'}
             </button>
+            {downloadError && <span className="field-error">{downloadError}</span>}
           </div>
 
           {/* Upload */}
@@ -99,7 +263,7 @@ export default function EnterDataPage() {
             <div className="ed-card-icon">📤</div>
             <h3 className="ed-card-title">Upload Filled Document</h3>
             <p className="ed-card-desc">
-              Upload your completed template to prepare it for analysis.
+              Upload your completed template (.xlsx, .xls, .csv) to extract and categorise the data.
             </p>
             <input
               ref={fileInputRef}
@@ -108,16 +272,40 @@ export default function EnterDataPage() {
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />
-            <button
-              className="btn-ed btn-ed-outline"
-              onClick={() => fileInputRef.current.click()}
-            >
-              {uploadedFile ? `✓ ${uploadedFile.name}` : 'Choose File'}
-            </button>
+            <div className="ed-upload-row">
+              <button
+                className="btn-ed btn-ed-outline"
+                onClick={() => fileInputRef.current.click()}
+                disabled={uploading}
+              >
+                {uploadedFile ? `✓ ${uploadedFile.name}` : 'Choose File'}
+              </button>
+              {uploadedFile && !uploadResult && (
+                <button
+                  className="btn-ed btn-ed-primary"
+                  onClick={handleUpload}
+                  disabled={uploading || analysing}
+                  style={{ padding: '10px 18px', fontSize: '14px' }}
+                >
+                  {uploading || analysing
+                    ? <><span className="btn-spinner" /> {uploading ? 'Uploading…' : 'Analysing…'}</>
+                    : 'Upload & Analyse'}
+                </button>
+              )}
+            </div>
             {uploadedFile && (
               <span className="ed-file-note">
-                {(uploadedFile.size / 1024).toFixed(1)} KB · {uploadedFile.type || 'file'}
+                {(uploadedFile.size / 1024).toFixed(1)} KB · {uploadedFile.name.split('.').pop().toUpperCase()}
               </span>
+            )}
+            {uploadError && <span className="field-error">{uploadError}</span>}
+            {uploadResult && (
+              <div className="ed-upload-success">
+                <span>✅ Extracted {uploadResult.sheets.length} sheet{uploadResult.sheets.length !== 1 ? 's' : ''}</span>
+                <button className="auth-link ed-txt-btn" onClick={handleDownloadText}>
+                  Download .txt
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -127,33 +315,226 @@ export default function EnterDataPage() {
           <button
             className="btn-ed btn-ed-primary"
             onClick={handleAnalyse}
-            disabled={analysing}
+            disabled={analysing || !uploadResult}
+            title={!uploadResult ? 'Upload a file first' : ''}
           >
             {analysing ? <span className="btn-spinner" /> : '🔍 Analyse'}
           </button>
+          {!uploadResult && (
+            <span className="ed-file-note" style={{ marginLeft: 12 }}>Upload a file first to enable analysis</span>
+          )}
         </div>
 
-        {/* Result */}
+        {/* Analysis result */}
         {analyseResult && (
-          <div className="ed-result">
-            <h3 className="ed-result-title">Analysis complete</h3>
-            <div className="profile-rows">
-              <div className="profile-row">
-                <span className="profile-key">File</span>
-                <span className="profile-val">{analyseResult.filename}</span>
-              </div>
-              <div className="profile-row">
-                <span className="profile-key">Rows detected</span>
-                <span className="profile-val">{analyseResult.rows}</span>
-              </div>
-              <div className="profile-row">
-                <span className="profile-key">Status</span>
-                <span className="profile-val accent">{analyseResult.status}</span>
-              </div>
-            </div>
-          </div>
+          analyseResult.error
+            ? <div className="form-alert">{analyseResult.error}</div>
+            : <>
+                <FixedAssetsTable
+                  result={analyseResult}
+                  rowAiByType={rowAiByType}
+                  rowAiLoading={rowAiLoading}
+                  onAiForType={handleAiForType}
+                />
+              </>
         )}
       </main>
+    </div>
+  )
+}
+
+function AiFormattedLines({ text }) {
+  const lines = (text || '').split('\n')
+  return (
+    <>
+      {lines.map((line, i) => {
+        const trimmed = line.trim()
+        if (!trimmed) return <div key={i} className="ai-line-gap" />
+        if (trimmed.startsWith('✅'))  return <h3 key={i} className="ai-heading ai-included">{trimmed}</h3>
+        if (trimmed.startsWith('❌'))  return <h3 key={i} className="ai-heading ai-excluded">{trimmed}</h3>
+        if (trimmed.startsWith('📊'))  return <h3 key={i} className="ai-heading ai-summary">{trimmed}</h3>
+        if (trimmed.startsWith('🔢'))  return <p key={i} className="ai-text" style={{ fontWeight: 600, marginTop: 8 }}>{trimmed}</p>
+        if (trimmed.startsWith('---')) return <hr key={i} className="ai-divider" />
+        if (trimmed.startsWith('-'))   return <li key={i} className="ai-list-item">{trimmed.slice(1).trim()}</li>
+        return <p key={i} className="ai-text">{trimmed}</p>
+      })}
+    </>
+  )
+}
+
+function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType }) {
+  const { table = [], summary = {} } = result
+
+  const fmt = (n) =>
+    n ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+
+  const listOrDash = (arr) => (arr && arr.length ? arr.join(', ') : '—')
+
+  function escapeCsv(value) {
+    const str = String(value ?? '')
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
+  function handleDownloadTable() {
+    if (!table.length) return
+    const headers = [
+      'Type of Asset',
+      'Total Value',
+      'Operational Usage',
+      'Locations',
+      'Valuation Method',
+      'Rows',
+    ]
+    const rows = table.map((row) => [
+      row.type,
+      row.total_value,
+      (row.operational_uses || []).join('\n'),
+      (row.locations || []).join('\n'),
+      (row.valuation_methods || []).join(' | '),
+      row.row_count,
+    ])
+
+    const csv = [
+      headers.map(escapeCsv).join(','),
+      ...rows.map((r) => r.map(escapeCsv).join(',')),
+    ].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `fixed_assets_analysis_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="ed-result">
+      {/* Summary cards */}
+      <div className="fa-title-row">
+        <h3 className="ed-result-title">
+          Fixed Assets Analysis — {summary.sheet_name}
+        </h3>
+        <button className="btn-ed btn-ed-outline" onClick={handleDownloadTable}>
+          Download Table (CSV)
+        </button>
+      </div>
+      <p className="dash-welcome-sub" style={{ marginTop: 8, marginBottom: 0 }}>
+        Use <strong>AI summary</strong> on each row to analyse operational usage for that asset type only (one AI request per click).
+      </p>
+      <div className="fa-summary-row">
+        <div className="fa-summary-card">
+          <span className="fa-summary-value">{summary.unique_types ?? 0}</span>
+          <span className="fa-summary-label">Asset Types</span>
+        </div>
+        <div className="fa-summary-card">
+          <span className="fa-summary-value">{summary.total_rows ?? 0}</span>
+          <span className="fa-summary-label">Total Assets</span>
+        </div>
+        <div className="fa-summary-card">
+          <span className="fa-summary-value">{fmt(summary.total_value)}</span>
+          <span className="fa-summary-label">Total Value</span>
+        </div>
+      </div>
+
+      {/* Table */}
+      {table.length === 0 ? (
+        <p className="dash-welcome-sub" style={{ marginTop: 16 }}>
+          No asset data rows found. Make sure the file is filled in below the header row.
+        </p>
+      ) : (
+        <div className="fa-table-wrap">
+          <table className="fa-table">
+            <thead>
+              <tr>
+                <th>Type of Asset</th>
+                <th className="fa-num">Total Value</th>
+                <th>Operational Usage</th>
+                <th>Location(s)</th>
+                <th>Valuation Method</th>
+                <th className="fa-num">Rows</th>
+                <th className="fa-ai-col">AI summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {table.map((row, i) => {
+                const typeKey = row.type
+                const hasOps = Array.isArray(row.operational_uses) && row.operational_uses.length > 0
+                const aiEntry = rowAiByType[typeKey]
+                const showAiRow = rowAiLoading === typeKey || aiEntry?.ai_response || aiEntry?.error
+                return (
+                  <Fragment key={`${typeKey}-${i}`}>
+                    <tr>
+                      <td className="fa-type">{row.type}</td>
+                      <td className="fa-num">{fmt(row.total_value)}</td>
+                      <td>{listOrDash(row.operational_uses)}</td>
+                      <td>{listOrDash(row.locations)}</td>
+                      <td>{listOrDash(row.valuation_methods)}</td>
+                      <td className="fa-num">{row.row_count}</td>
+                      <td className="fa-ai-cell">
+                        <button
+                          type="button"
+                          className="btn-ai-row"
+                          onClick={() => onAiForType(typeKey)}
+                          disabled={!hasOps || rowAiLoading === typeKey}
+                          title={!hasOps ? 'Add operational usage for this asset type first' : 'Summarise operational usage with AI'}
+                        >
+                          {rowAiLoading === typeKey ? (
+                            <><span className="btn-spinner" /> Running…</>
+                          ) : (
+                            '✨ AI'
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                    {showAiRow ? (
+                      <tr className="fa-ai-subrow">
+                        <td colSpan={7}>
+                          <div className="fa-ai-panel">
+                            {rowAiLoading === typeKey && (
+                              <p className="fa-ai-status">Generating summary from operational usage…</p>
+                            )}
+                            {aiEntry?.error && (
+                              <div className="form-alert" style={{ marginBottom: 8 }}>{aiEntry.error}</div>
+                            )}
+                            {aiEntry?.ai_response && (
+                              <>
+                                <div className="fa-ai-meta">
+                                  {aiEntry.model && (
+                                    <span>Model: <strong>{aiEntry.model}</strong></span>
+                                  )}
+                                  {aiEntry.unique_uses_sent != null && (
+                                    <span>Lines sent: <strong>{aiEntry.unique_uses_sent}</strong></span>
+                                  )}
+                                </div>
+                                <div className="ai-result-body">
+                                  <AiFormattedLines text={aiEntry.ai_response} />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td><strong>Total</strong></td>
+                <td className="fa-num"><strong>{fmt(summary.total_value)}</strong></td>
+                <td colSpan={3} />
+                <td className="fa-num"><strong>{summary.total_rows}</strong></td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

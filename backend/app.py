@@ -41,7 +41,13 @@ def create_app():
     # Blueprints
     # ------------------------------------------------------------------
     from routes.auth import auth_bp
+    from routes.templates import templates_bp
+    from routes.data import data_bp
+    from routes.ai import ai_bp
     app.register_blueprint(auth_bp)
+    app.register_blueprint(templates_bp)
+    app.register_blueprint(data_bp)
+    app.register_blueprint(ai_bp)
 
     # ------------------------------------------------------------------
     # Core routes
