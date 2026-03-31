@@ -5,6 +5,49 @@ import { useAuth } from '../context/AuthContext'
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 const SESSION_KEY = 'sgs_enter_data_state'
 
+/** Normalize for matching asset type keywords from risk "when to apply" lists. */
+function normalizeForMatch(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+/**
+ * Match comma-separated keywords in risk.when_to_apply to asset type name.
+ * Returns true if any keyword matches (substring or token overlap).
+ */
+function keywordMatchesAssetType(keyword, assetType) {
+  const kw = normalizeForMatch(keyword)
+  const at = normalizeForMatch(assetType)
+  if (kw.length < 2 || at.length < 2) return false
+  if (at.includes(kw) || kw.includes(at)) return true
+  const kwTokens = kw.split(/\s+/).filter((t) => t.length >= 3)
+  for (const t of kwTokens) {
+    if (at.includes(t)) return true
+    if (t.length > 4 && at.includes(t.slice(0, -1))) return true
+  }
+  return false
+}
+
+function getApplyingRisksForAssetType(assetType, riskRows) {
+  if (!Array.isArray(riskRows) || !riskRows.length) return []
+  const labels = []
+  for (const r of riskRows) {
+    const raw = r.when_to_apply || ''
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+    let matched = false
+    for (const part of parts) {
+      if (keywordMatchesAssetType(part, assetType)) {
+        matched = true
+        break
+      }
+    }
+    if (matched) labels.push(r.risk || 'Risk')
+  }
+  return [...new Set(labels)]
+}
+
 function savePageState(uploadResult, analyseResult, rowAiByType) {
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
@@ -43,6 +86,7 @@ export default function EnterDataPage() {
   const [rowAiLoading, setRowAiLoading] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(false)
   const [sessionError, setSessionError] = useState('')
+  const [riskRows, setRiskRows] = useState([])
 
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??'
 
@@ -97,6 +141,31 @@ export default function EnterDataPage() {
   useEffect(() => {
     savePageState(uploadResult, analyseResult, rowAiByType)
   }, [uploadResult, analyseResult, rowAiByType])
+
+  useEffect(() => {
+    if (!token) return
+    const hasTable = analyseResult?.table?.length
+    if (!hasTable) {
+      setRiskRows([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/risks/table`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.message || 'Failed to load risks')
+        if (!cancelled) setRiskRows(Array.isArray(data.rows) ? data.rows : [])
+      } catch {
+        if (!cancelled) setRiskRows([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token, analyseResult?._analysisId, analyseResult?.table?.length])
 
   async function runAnalysis(uploadId) {
     setAnalysing(true)
@@ -418,6 +487,7 @@ export default function EnterDataPage() {
             : <>
                 <FixedAssetsTable
                   result={analyseResult}
+                  riskRows={riskRows}
                   rowAiByType={rowAiByType}
                   rowAiLoading={rowAiLoading}
                   onAiForType={handleAiForType}
@@ -448,7 +518,7 @@ function AiFormattedLines({ text }) {
   )
 }
 
-function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType }) {
+function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoading, onAiForType }) {
   const { table = [], summary = {} } = result
 
   const fmt = (n) =>
@@ -473,6 +543,7 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
       'Locations',
       'Valuation Method',
       'Rows',
+      'Applying risks',
     ]
     const rows = table.map((row) => [
       row.type,
@@ -481,6 +552,7 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
       (row.locations || []).join('\n'),
       (row.valuation_methods || []).join(' | '),
       row.row_count,
+      getApplyingRisksForAssetType(row.type, riskRows).join('; '),
     ])
 
     const csv = [
@@ -509,7 +581,9 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
         </button>
       </div>
       <p className="dash-welcome-sub" style={{ marginTop: 8, marginBottom: 0 }}>
-        Use <strong>AI summary</strong> on each row to analyse operational usage for that asset type only (one AI request per click).
+        Use <strong>AI summary</strong> on each row to analyse operational usage for that asset type only (one AI request per click). Operational usage is hidden in this table but still used for AI; download CSV to see it.
+        {' '}
+        <strong>Applying risks</strong> lists Risk Table entries whose <em>When to apply</em> keywords match this asset type (comma-separated keywords).
       </p>
       <div className="fa-summary-row">
         <div className="fa-summary-card">
@@ -538,10 +612,10 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
               <tr>
                 <th>Type of Asset</th>
                 <th className="fa-num">Total Value</th>
-                <th>Operational Usage</th>
                 <th>Location(s)</th>
                 <th>Valuation Method</th>
                 <th className="fa-num">Rows</th>
+                <th className="fa-risks-col">Applying risks</th>
                 <th className="fa-ai-col">AI summary</th>
               </tr>
             </thead>
@@ -551,15 +625,26 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
                 const hasOps = Array.isArray(row.operational_uses) && row.operational_uses.length > 0
                 const aiEntry = rowAiByType[typeKey]
                 const showAiRow = rowAiLoading === typeKey || aiEntry?.ai_response || aiEntry?.error
+                const applyingRisks = getApplyingRisksForAssetType(typeKey, riskRows)
                 return (
                   <Fragment key={`${typeKey}-${i}`}>
                     <tr>
                       <td className="fa-type">{row.type}</td>
                       <td className="fa-num">{fmt(row.total_value)}</td>
-                      <td>{listOrDash(row.operational_uses)}</td>
                       <td>{listOrDash(row.locations)}</td>
                       <td>{listOrDash(row.valuation_methods)}</td>
                       <td className="fa-num">{row.row_count}</td>
+                      <td className="fa-risks-cell">
+                        {applyingRisks.length ? (
+                          <ul className="fa-risks-list">
+                            {applyingRisks.map((label) => (
+                              <li key={label}>{label}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td className="fa-ai-cell">
                         <button
                           type="button"
@@ -613,8 +698,9 @@ function FixedAssetsTable({ result, rowAiByType = {}, rowAiLoading, onAiForType 
               <tr>
                 <td><strong>Total</strong></td>
                 <td className="fa-num"><strong>{fmt(summary.total_value)}</strong></td>
-                <td colSpan={3} />
+                <td colSpan={2} />
                 <td className="fa-num"><strong>{summary.total_rows}</strong></td>
+                <td />
                 <td />
               </tr>
             </tfoot>
