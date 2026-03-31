@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import EnterDataPage from './pages/EnterDataPage'
+import RiskTablePage from './pages/RiskTablePage'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -37,6 +38,10 @@ export default function App() {
           <Route
             path="/enter-data"
             element={<ProtectedRoute><EnterDataPage /></ProtectedRoute>}
+          />
+          <Route
+            path="/risk-table"
+            element={<ProtectedRoute><RiskTablePage /></ProtectedRoute>}
           />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
