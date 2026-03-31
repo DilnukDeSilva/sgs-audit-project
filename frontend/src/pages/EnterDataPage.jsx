@@ -1,24 +1,48 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+const SESSION_KEY = 'sgs_enter_data_state'
+
+function savePageState(uploadResult, analyseResult, rowAiByType) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      uploadResult: uploadResult || null,
+      analyseResult: analyseResult || null,
+      rowAiByType: rowAiByType || {},
+    }))
+  } catch { /* ignore */ }
+}
+
+function loadPageState() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
 
 export default function EnterDataPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout, token } = useAuth()
   const fileInputRef = useRef(null)
 
+  // Restore persisted state immediately — no flash of empty page
+  const _saved = loadPageState()
+
   const [uploadedFile, setUploadedFile] = useState(null)
   const [uploading, setUploading] = useState(false)
-  const [uploadResult, setUploadResult] = useState(null)
+  const [uploadResult, setUploadResult] = useState(_saved?.uploadResult || null)
   const [uploadError, setUploadError] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
   const [analysing, setAnalysing] = useState(false)
-  const [analyseResult, setAnalyseResult] = useState(null)
-  const [rowAiByType, setRowAiByType] = useState({})
+  const [analyseResult, setAnalyseResult] = useState(_saved?.analyseResult || null)
+  const [rowAiByType, setRowAiByType] = useState(_saved?.rowAiByType || {})
   const [rowAiLoading, setRowAiLoading] = useState(null)
+  const [sessionLoading, setSessionLoading] = useState(false)
+  const [sessionError, setSessionError] = useState('')
 
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??'
 
@@ -60,6 +84,7 @@ export default function EnterDataPage() {
   function handleFileChange(e) {
     const file = e.target.files[0]
     if (file) {
+      sessionStorage.removeItem(SESSION_KEY)
       setUploadedFile(file)
       setUploadResult(null)
       setUploadError('')
@@ -67,6 +92,11 @@ export default function EnterDataPage() {
       setRowAiByType({})
     }
   }
+
+  // Persist to sessionStorage whenever key state changes
+  useEffect(() => {
+    savePageState(uploadResult, analyseResult, rowAiByType)
+  }, [uploadResult, analyseResult, rowAiByType])
 
   async function runAnalysis(uploadId) {
     setAnalysing(true)
@@ -79,10 +109,10 @@ export default function EnterDataPage() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Analysis failed.')
-      // Persist both IDs: analysis_id (preferred) and fallback uploadId
+      const analysisId = data.analysis_id || uploadId
       setAnalyseResult({
         ...data,
-        _analysisId: data.analysis_id || uploadId,
+        _analysisId: analysisId,
         _uploadId: uploadId,
       })
     } catch (err) {
@@ -94,6 +124,7 @@ export default function EnterDataPage() {
 
   async function handleUpload() {
     if (!uploadedFile) return
+    sessionStorage.removeItem(SESSION_KEY)
     setUploading(true)
     setUploadError('')
     setUploadResult(null)
@@ -137,6 +168,59 @@ export default function EnterDataPage() {
     if (!uploadResult) return
     await runAnalysis(uploadResult.id)
   }
+
+  // When "Open Session" is clicked from Dashboard, load that specific session
+  useEffect(() => {
+    const sessionUploadId = location.state?.sessionUploadId
+    const sessionAnalysisId = location.state?.sessionAnalysisId
+    if (!sessionUploadId || !token) return
+
+    // Skip if we already have this session loaded
+    if (uploadResult?.id === sessionUploadId) return
+
+    let cancelled = false
+    ;(async () => {
+      setSessionLoading(true)
+      setSessionError('')
+      try {
+        // Fetch upload directly by listing and finding it
+        const uploadsRes = await fetch(`${BASE_URL}/api/data/uploads`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const uploadsData = await uploadsRes.json()
+        if (!uploadsRes.ok) throw new Error(uploadsData.message || 'Failed to load session.')
+        const selectedUpload = (uploadsData.uploads || []).find((u) => u.id === sessionUploadId)
+        if (!selectedUpload) throw new Error('Session upload not found.')
+        if (cancelled) return
+        setUploadedFile(null)
+        setUploadResult(selectedUpload)
+        setUploadError('')
+        setAnalyseResult(null)
+        setRowAiByType({})
+
+        if (sessionAnalysisId) {
+          const analysisRes = await fetch(
+            `${BASE_URL}/api/data/analyses/${sessionAnalysisId}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+          const analysisData = await analysisRes.json()
+          if (!analysisRes.ok) throw new Error(analysisData.message || 'Failed to load analysis.')
+          if (cancelled) return
+          setAnalyseResult({
+            ...analysisData,
+            _analysisId: analysisData.id || sessionAnalysisId,
+            _uploadId: sessionUploadId,
+          })
+        }
+      } catch (err) {
+        if (!cancelled) setSessionError(err.message || 'Failed to open session.')
+      } finally {
+        if (!cancelled) setSessionLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [location.state?.sessionUploadId, location.state?.sessionAnalysisId, token])
 
   useEffect(() => {
     const id = analyseResult?._analysisId || analyseResult?._uploadId
@@ -238,6 +322,8 @@ export default function EnterDataPage() {
             Download the template, fill it in, then upload and analyse your data.
           </p>
         </div>
+        {sessionLoading && <div className="dash-welcome-sub">Opening session…</div>}
+        {sessionError && <div className="form-alert">{sessionError}</div>}
 
         {/* Action cards */}
         <div className="ed-cards">
