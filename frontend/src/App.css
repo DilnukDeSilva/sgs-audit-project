@@ -638,6 +638,27 @@
   white-space: nowrap;
 }
 
+.fa-risks-col {
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.fa-risks-cell {
+  font-size: 12px;
+  line-height: 1.35;
+  vertical-align: top !important;
+  color: var(--text-h);
+}
+
+.fa-risks-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.fa-risks-list li {
+  margin: 2px 0;
+}
+
 .fa-ai-col { white-space: nowrap; width: 1%; }
 .fa-ai-cell { vertical-align: middle !important; }
 
