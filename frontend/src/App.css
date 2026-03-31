@@ -35,6 +35,7 @@
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
+  margin: 15px 3px 3px 3px;
   letter-spacing: 0.06em;
   padding: 3px 10px;
   margin-bottom: 14px;
@@ -832,3 +833,126 @@
 }
 
 .ai-line-gap { height: 6px; }
+
+.risk-input {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-h);
+  background: transparent;
+  box-sizing: border-box;
+  line-height: 1.35;
+  cursor: default;
+}
+
+.risk-input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  background: var(--bg);
+  box-shadow: none;
+}
+
+/* Risk table — narrow compact columns, wide description / when to apply */
+.risk-table-wrap {
+  overflow-x: auto;
+}
+
+.risk-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.risk-table-clean thead th {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.risk-table-clean td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.risk-table-clean tbody tr:hover td {
+  background: transparent;
+}
+
+.risk-table th,
+.risk-table td {
+  vertical-align: top;
+}
+
+.risk-table .risk-col-risk {
+  width: 5%;
+  min-width: 72px;
+  max-width: 110px;
+}
+
+.risk-table .risk-col-category {
+  width: 8%;
+  min-width: 96px;
+  max-width: 140px;
+}
+
+.risk-table .risk-col-rcp {
+  width: 4%;
+  min-width: 48px;
+  max-width: 64px;
+  text-align: center;
+}
+
+.risk-table .risk-col-rcp .risk-input {
+  text-align: center;
+}
+
+.risk-table .risk-col-impact {
+  width: 11%;
+  min-width: 120px;
+}
+
+.risk-table .risk-col-komar {
+  width: 10%;
+  min-width: 120px;
+}
+
+.risk-table .risk-col-wide {
+  width: 25%;
+  min-width: 180px;
+}
+
+.risk-table .risk-col-actions {
+  width: 6%;
+  min-width: 88px;
+  white-space: nowrap;
+}
+
+.risk-input--compact {
+  min-height: 30px;
+  height: 30px;
+  resize: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-input--medium {
+  min-height: 56px;
+}
+
+.risk-input--wide {
+  min-height: 72px;
+}

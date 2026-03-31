@@ -145,9 +145,9 @@ export default function DashboardPage() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn-enter-data" onClick={() => navigate('/enter-data')}>
+              {/* <button className="btn-enter-data" onClick={() => navigate('/enter-data')}>
                 + Enter Data
-              </button>
+              </button> */}
               <button className="btn-ed btn-ed-primary" onClick={() => navigate('/enter-data')}>
                 Continue last session
               </button>
@@ -254,7 +254,15 @@ export default function DashboardPage() {
 
         {/* Profile card */}
         <div className="profile-card">
-          <h3 className="profile-card-title">Account details</h3>
+          <div className="dash-welcome-row" style={{ marginBottom: 8 }}>
+            <h3 className="profile-card-title" style={{ margin: 0 }}>Account details</h3>
+            <button
+              className="btn-ed btn-ed-outline"
+              onClick={() => navigate('/risk-table')}
+            >
+              Risk Table
+            </button>
+          </div>
           <div className="profile-rows">
             <div className="profile-row">
               <span className="profile-key">Username</span>
