@@ -9,6 +9,7 @@ from bson import ObjectId
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from pymongo import ReturnDocument
+from pymongo.errors import OperationFailure
 
 from config.db import get_db
 from models.upload import build_upload, public_upload
@@ -113,7 +114,7 @@ def upload_file():
 
     return jsonify({
         "message": "File uploaded and processed successfully.",
-        "upload": public_upload(doc),
+        "upload": public_upload(doc, full=True),
     }), 201
 
 
@@ -124,12 +125,27 @@ def upload_file():
 @jwt_required()
 def list_uploads():
     user_id = get_jwt_identity()
-    docs = list(
-        get_db()["uploads"]
-        .find({"user_id": user_id})
-        .sort("uploaded_at", -1)
-        .limit(20)
-    )
+    try:
+        docs = list(
+            get_db()["uploads"]
+            .find({"user_id": user_id}, {"extracted_text": 0, "sheets.rows": 0})
+            .sort("uploaded_at", -1)
+            .allow_disk_use(True)
+            .limit(20)
+        )
+    except OperationFailure as exc:
+        # Fallback for environments where find+sort disk use is not honored.
+        if getattr(exc, "code", None) == 292:
+            docs = list(
+                get_db()["uploads"]
+                .find({"user_id": user_id}, {"extracted_text": 0, "sheets.rows": 0})
+                .sort("_id", -1)
+                .limit(20)
+            )
+        else:
+            return jsonify({"message": f"Failed to list uploads: {str(exc)}"}), 500
+    except Exception as exc:
+        return jsonify({"message": f"Failed to list uploads: {str(exc)}"}), 500
     return jsonify({"uploads": [public_upload(d) for d in docs]}), 200
 
 
@@ -161,6 +177,37 @@ def download_text(upload_id):
         download_name=f"{base_name}_extracted.txt",
         mimetype="text/plain",
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/data/uploads/<upload_id>  –  delete one upload + related analyses
+# ---------------------------------------------------------------------------
+@data_bp.delete("/uploads/<upload_id>")
+@jwt_required()
+def delete_upload(upload_id):
+    user_id = get_jwt_identity()
+    try:
+        oid = ObjectId(upload_id)
+    except Exception:
+        return jsonify({"message": "Invalid upload ID."}), 400
+
+    upload_result = get_db()["uploads"].delete_one({
+        "_id": oid,
+        "user_id": user_id,
+    })
+    if upload_result.deleted_count == 0:
+        return jsonify({"message": "Upload not found."}), 404
+
+    analyses_result = get_db()["analyses"].delete_many({
+        "user_id": user_id,
+        "upload_id": upload_id,
+    })
+
+    return jsonify({
+        "message": "Session deleted successfully.",
+        "deleted_uploads": upload_result.deleted_count,
+        "deleted_analyses": analyses_result.deleted_count,
+    }), 200
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +417,27 @@ def analyse_fixed_assets(upload_id):
 @jwt_required()
 def list_analyses():
     user_id = get_jwt_identity()
-    docs = list(
-        get_db()["analyses"]
-        .find({"user_id": user_id}, {"table": 0})   # exclude heavy table rows from list view
-        .sort("analysed_at", -1)
-        .limit(50)
-    )
+    try:
+        docs = list(
+            get_db()["analyses"]
+            .find({"user_id": user_id}, {"table": 0})
+            .sort("analysed_at", -1)
+            .allow_disk_use(True)
+            .limit(50)
+        )
+    except OperationFailure as exc:
+        # Fallback to indexed order if uploaded_at/analysed_at sort exceeds memory.
+        if getattr(exc, "code", None) == 292:
+            docs = list(
+                get_db()["analyses"]
+                .find({"user_id": user_id}, {"table": 0})
+                .sort("_id", -1)
+                .limit(50)
+            )
+        else:
+            return jsonify({"message": f"Failed to list analyses: {str(exc)}"}), 500
+    except Exception as exc:
+        return jsonify({"message": f"Failed to list analyses: {str(exc)}"}), 500
     results = [
         {
             "id":          str(d["_id"]),
