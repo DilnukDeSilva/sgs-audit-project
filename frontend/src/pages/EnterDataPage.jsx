@@ -499,27 +499,125 @@ export default function EnterDataPage() {
   )
 }
 
-function AiFormattedLines({ text }) {
-  const lines = (text || '').split('\n')
-  return (
-    <>
-      {lines.map((line, i) => {
-        const trimmed = line.trim()
-        if (!trimmed) return <div key={i} className="ai-line-gap" />
-        if (trimmed.startsWith('✅'))  return <h3 key={i} className="ai-heading ai-included">{trimmed}</h3>
-        if (trimmed.startsWith('❌'))  return <h3 key={i} className="ai-heading ai-excluded">{trimmed}</h3>
-        if (trimmed.startsWith('📊'))  return <h3 key={i} className="ai-heading ai-summary">{trimmed}</h3>
-        if (trimmed.startsWith('🔢'))  return <p key={i} className="ai-text" style={{ fontWeight: 600, marginTop: 8 }}>{trimmed}</p>
-        if (trimmed.startsWith('---')) return <hr key={i} className="ai-divider" />
-        if (trimmed.startsWith('-'))   return <li key={i} className="ai-list-item">{trimmed.slice(1).trim()}</li>
-        return <p key={i} className="ai-text">{trimmed}</p>
-      })}
-    </>
-  )
+/** Remove leading section emoji markers from rendered AI text (parsing still uses raw markers). */
+function stripLeadingAiIcons(line) {
+  let t = String(line || '').trim()
+  const prefixes = ['✅', '❌', '📊', '🔢']
+  let guard = 0
+  while (guard < 10) {
+    guard += 1
+    let hit = false
+    for (const p of prefixes) {
+      if (t.startsWith(p)) {
+        t = t.slice(p.length).trim()
+        hit = true
+        break
+      }
+    }
+    if (!hit) break
+  }
+  return t
+}
+
+function AiFormattedLines({ text, splitSideBySide = true }) {
+  const raw = text || ''
+
+  if (splitSideBySide && raw.includes('✅') && raw.includes('❌')) {
+    const idxCheck = raw.indexOf('✅')
+    const idxCross = raw.indexOf('❌')
+    if (idxCross > idxCheck) {
+      const before = raw.slice(0, idxCheck).trim()
+      const includedBlock = raw
+        .slice(idxCheck, idxCross)
+        .replace(/\n?\s*---\s*$/m, '')
+        .trim()
+      const afterCross = raw.slice(idxCross)
+      const sepIdx = afterCross.indexOf('\n---\n')
+      const chartIdx = afterCross.indexOf('📊')
+      const bounds = [sepIdx, chartIdx].filter((x) => x >= 0)
+      const endExcl = bounds.length ? Math.min(...bounds) : afterCross.length
+      const excludedBlock = afterCross.slice(0, endExcl).trim()
+      const after = afterCross.slice(endExcl).replace(/^\s*---\s*/m, '').trim()
+      const countsIdx = after.indexOf('🔢')
+      const countsBlock = countsIdx >= 0 ? after.slice(countsIdx).trim() : ''
+      const afterWithoutCounts = countsIdx >= 0 ? after.slice(0, countsIdx).trim() : after
+
+      return (
+        <>
+          {before ? <AiFormattedLines text={before} splitSideBySide={false} /> : null}
+          <div className={countsBlock ? 'ai-three-col' : 'ai-two-col'}>
+            <div className="ai-two-col-panel">
+              <AiFormattedLines text={includedBlock} splitSideBySide={false} />
+            </div>
+            <div className="ai-two-col-panel">
+              <AiFormattedLines text={excludedBlock} splitSideBySide={false} />
+            </div>
+            {countsBlock ? (
+              <div className="ai-two-col-panel">
+                <AiFormattedLines text={countsBlock} splitSideBySide={false} />
+              </div>
+            ) : null}
+          </div>
+          {afterWithoutCounts ? <AiFormattedLines text={afterWithoutCounts} splitSideBySide={false} /> : null}
+        </>
+      )
+    }
+  }
+
+  const lines = raw.split('\n')
+  const nodes = []
+  let prevBlank = false
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim()
+    if (!trimmed) {
+      // Collapse multiple blank lines to avoid oversized gaps.
+      if (!prevBlank) nodes.push(<div key={`gap-${i}`} className="ai-line-gap" />)
+      prevBlank = true
+      continue
+    }
+
+    prevBlank = false
+    if (trimmed.startsWith('✅')) {
+      nodes.push(<h3 key={i} className="ai-heading ai-included">{stripLeadingAiIcons(trimmed)}</h3>)
+      continue
+    }
+    if (trimmed.startsWith('❌')) {
+      nodes.push(<h3 key={i} className="ai-heading ai-excluded">{stripLeadingAiIcons(trimmed)}</h3>)
+      continue
+    }
+    if (trimmed.startsWith('📊')) {
+      nodes.push(<h3 key={i} className="ai-heading ai-summary">{stripLeadingAiIcons(trimmed)}</h3>)
+      continue
+    }
+    if (trimmed.startsWith('🔢')) {
+      nodes.push(<p key={i} className="ai-text ai-counts-heading">{stripLeadingAiIcons(trimmed)}</p>)
+      continue
+    }
+    if (trimmed.startsWith('---')) {
+      nodes.push(<hr key={i} className="ai-divider" />)
+      continue
+    }
+    if (trimmed.startsWith('-')) {
+      nodes.push(<li key={i} className="ai-list-item">{trimmed.slice(1).trim()}</li>)
+      continue
+    }
+    nodes.push(<p key={i} className="ai-text">{trimmed}</p>)
+  }
+
+  return <>{nodes}</>
 }
 
 function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoading, onAiForType }) {
   const { table = [], summary = {} } = result
+  const [aiPanelCollapsed, setAiPanelCollapsed] = useState({})
+
+  function toggleAiPanel(typeKey) {
+    setAiPanelCollapsed((prev) => ({
+      ...prev,
+      [typeKey]: !prev[typeKey],
+    }))
+  }
 
   const fmt = (n) =>
     n ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
@@ -626,6 +724,8 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                 const aiEntry = rowAiByType[typeKey]
                 const showAiRow = rowAiLoading === typeKey || aiEntry?.ai_response || aiEntry?.error
                 const applyingRisks = getApplyingRisksForAssetType(typeKey, riskRows)
+                const aiBusy = rowAiLoading === typeKey
+                const aiExpanded = aiBusy || !aiPanelCollapsed[typeKey]
                 return (
                   <Fragment key={`${typeKey}-${i}`}>
                     <tr>
@@ -656,7 +756,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                           {rowAiLoading === typeKey ? (
                             <><span className="btn-spinner" /> Running…</>
                           ) : (
-                            '✨ AI'
+                            'AI'
                           )}
                         </button>
                       </td>
@@ -665,26 +765,46 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                       <tr className="fa-ai-subrow">
                         <td colSpan={7}>
                           <div className="fa-ai-panel">
-                            {rowAiLoading === typeKey && (
-                              <p className="fa-ai-status">Generating summary from operational usage…</p>
-                            )}
-                            {aiEntry?.error && (
-                              <div className="form-alert" style={{ marginBottom: 8 }}>{aiEntry.error}</div>
-                            )}
-                            {aiEntry?.ai_response && (
+                            <div className="fa-ai-panel-toolbar">
+                              <span className="fa-ai-panel-title">AI summary</span>
+                              <button
+                                type="button"
+                                className="fa-ai-toggle"
+                                onClick={() => toggleAiPanel(typeKey)}
+                                disabled={aiBusy}
+                                title={aiBusy ? 'Wait for generation to finish' : aiExpanded ? 'Hide summary' : 'Show summary'}
+                              >
+                                {aiExpanded ? '▼ Collapse' : '▶ Expand'}
+                              </button>
+                            </div>
+                            {aiExpanded ? (
                               <>
-                                <div className="fa-ai-meta">
-                                  {aiEntry.model && (
-                                    <span>Model: <strong>{aiEntry.model}</strong></span>
-                                  )}
-                                  {aiEntry.unique_uses_sent != null && (
-                                    <span>Lines sent: <strong>{aiEntry.unique_uses_sent}</strong></span>
-                                  )}
-                                </div>
-                                <div className="ai-result-body">
-                                  <AiFormattedLines text={aiEntry.ai_response} />
-                                </div>
+                                {aiBusy && (
+                                  <p className="fa-ai-status">Generating summary from operational usage…</p>
+                                )}
+                                {aiEntry?.error && (
+                                  <div className="form-alert" style={{ marginBottom: 8 }}>{aiEntry.error}</div>
+                                )}
+                                {aiEntry?.ai_response && (
+                                  <>
+                                    <div className="fa-ai-meta">
+                                      {aiEntry.model && (
+                                        <span>Model: <strong>{aiEntry.model}</strong></span>
+                                      )}
+                                      {aiEntry.unique_uses_sent != null && (
+                                        <span>Lines sent: <strong>{aiEntry.unique_uses_sent}</strong></span>
+                                      )}
+                                    </div>
+                                    <div className="ai-result-body">
+                                      <AiFormattedLines text={aiEntry.ai_response} />
+                                    </div>
+                                  </>
+                                )}
                               </>
+                            ) : (
+                              aiEntry?.error ? (
+                                <div className="form-alert" style={{ margin: 0 }}>{aiEntry.error}</div>
+                              ) : null
                             )}
                           </div>
                         </td>
