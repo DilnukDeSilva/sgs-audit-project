@@ -11,7 +11,7 @@ const COLUMNS = [
   { key: 'impact', label: 'Impact', colClass: 'risk-col-impact' },
   { key: 'rcp_2_6', label: 'RCP 2.6', colClass: 'risk-col-rcp' },
   { key: 'rcp_8_5', label: 'RCP 8.5', colClass: 'risk-col-rcp' },
-  { key: 'komar_impact', label: 'Komar Impact', colClass: 'risk-col-komar' },
+  // { key: 'komar_impact', label: 'Komar Impact', colClass: 'risk-col-komar' },
   { key: 'when_to_apply', label: 'When to Apply', colClass: 'risk-col-wide' },
 ]
 
