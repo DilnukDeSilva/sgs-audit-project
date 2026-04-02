@@ -638,6 +638,29 @@
   white-space: nowrap;
 }
 
+.fa-loc-col {
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.fa-location-cell {
+  vertical-align: top !important;
+}
+
+.fa-location-list {
+  margin: 0;
+  padding-left: 1.35em;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-h);
+}
+
+.fa-location-list li {
+  margin: 5px 0;
+  padding-left: 2px;
+  word-break: break-word;
+}
+
 .fa-risks-col {
   min-width: 140px;
   max-width: 220px;
