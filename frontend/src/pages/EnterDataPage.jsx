@@ -624,6 +624,22 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
 
   const listOrDash = (arr) => (arr && arr.length ? arr.join(', ') : '—')
 
+  /** One clean string per site — easier to read and to paste into geocoding. */
+  function normalizedLocations(arr) {
+    if (!Array.isArray(arr) || !arr.length) return []
+    const seen = new Set()
+    const out = []
+    for (const raw of arr) {
+      const s = String(raw || '').replace(/\s+/g, ' ').trim()
+      if (!s) continue
+      const key = s.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(s)
+    }
+    return out
+  }
+
   function escapeCsv(value) {
     const str = String(value ?? '')
     if (str.includes('"') || str.includes(',') || str.includes('\n')) {
@@ -647,7 +663,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
       row.type,
       row.total_value,
       (row.operational_uses || []).join('\n'),
-      (row.locations || []).join('\n'),
+      normalizedLocations(row.locations).join('\n'),
       (row.valuation_methods || []).join(' | '),
       row.row_count,
       getApplyingRisksForAssetType(row.type, riskRows).join('; '),
@@ -682,6 +698,8 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
         Use <strong>AI summary</strong> on each row to analyse operational usage for that asset type only (one AI request per click). Operational usage is hidden in this table but still used for AI; download CSV to see it.
         {' '}
         <strong>Applying risks</strong> lists Risk Table entries whose <em>When to apply</em> keywords match this asset type (comma-separated keywords).
+        {' '}
+        <strong>Locations</strong> are shown as one numbered line per site (deduplicated) so you can copy each into Google Maps or a geocoding API.
       </p>
       <div className="fa-summary-row">
         <div className="fa-summary-card">
@@ -710,7 +728,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
               <tr>
                 <th>Type of Asset</th>
                 <th className="fa-num">Total Value</th>
-                <th>Location(s)</th>
+                <th className="fa-loc-col">Locations</th>
                 <th>Valuation Method</th>
                 <th className="fa-num">Rows</th>
                 <th className="fa-risks-col">Applying risks</th>
@@ -726,12 +744,23 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                 const applyingRisks = getApplyingRisksForAssetType(typeKey, riskRows)
                 const aiBusy = rowAiLoading === typeKey
                 const aiExpanded = aiBusy || !aiPanelCollapsed[typeKey]
+                const locs = normalizedLocations(row.locations)
                 return (
                   <Fragment key={`${typeKey}-${i}`}>
                     <tr>
                       <td className="fa-type">{row.type}</td>
                       <td className="fa-num">{fmt(row.total_value)}</td>
-                      <td>{listOrDash(row.locations)}</td>
+                      <td className="fa-location-cell">
+                        {locs.length ? (
+                          <ol className="fa-location-list" title="One address or site per line — use for geocoding">
+                            {locs.map((loc, li) => (
+                              <li key={`${typeKey}-loc-${li}`}>{loc}</li>
+                            ))}
+                          </ol>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td>{listOrDash(row.valuation_methods)}</td>
                       <td className="fa-num">{row.row_count}</td>
                       <td className="fa-risks-cell">
