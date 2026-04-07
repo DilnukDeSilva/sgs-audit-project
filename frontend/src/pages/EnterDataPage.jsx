@@ -48,6 +48,74 @@ function getApplyingRisksForAssetType(assetType, riskRows) {
   return [...new Set(labels)]
 }
 
+function normalizeLocationWhitespace(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim()
+}
+
+/** Merge "… - KOGGALA 2" with "… - KOGGALA" (trailing 2/3 on site name only). */
+function stripTrailingDuplicateSiteSuffix(s) {
+  return normalizeLocationWhitespace(s).replace(/\s+([23])\s*$/g, '')
+}
+
+/**
+ * Short site codes after "Org - " (e.g. LLI, SGI, SGL) collapse to one line: org name only.
+ * Real sites (city names, addresses) stay as "Org - Place".
+ */
+function isShortSiteCodeSegment(segment) {
+  const t = segment.trim()
+  if (t.length < 2 || t.length > 4) return false
+  return /^[A-Za-z]+$/.test(t)
+}
+
+/**
+ * Dedupe + merge redundant location lines per asset type (fewer geocoding/API calls).
+ */
+function collapseRedundantLocations(rawList) {
+  if (!Array.isArray(rawList) || !rawList.length) return []
+  const step1 = [...new Set(rawList.map(normalizeLocationWhitespace).filter(Boolean))]
+    .map(stripTrailingDuplicateSiteSuffix)
+
+  const byParent = new Map()
+  const noDash = []
+
+  for (const loc of step1) {
+    const idx = loc.indexOf(' - ')
+    if (idx === -1) {
+      noDash.push(loc)
+      continue
+    }
+    const parent = loc.slice(0, idx).trim()
+    const child = loc.slice(idx + 3).trim()
+    if (!byParent.has(parent)) byParent.set(parent, [])
+    byParent.get(parent).push({ full: loc, child })
+  }
+
+  const merged = []
+
+  for (const loc of noDash) {
+    merged.push(loc)
+  }
+
+  for (const [parent, rows] of byParent) {
+    const shorts = rows.filter((r) => isShortSiteCodeSegment(r.child))
+    const longs = rows.filter((r) => !isShortSiteCodeSegment(r.child))
+    if (shorts.length) {
+      merged.push(parent)
+    }
+    const seenLong = new Set()
+    for (const r of longs) {
+      const k = r.full.toLowerCase()
+      if (seenLong.has(k)) continue
+      seenLong.add(k)
+      merged.push(r.full)
+    }
+  }
+
+  return [...new Set(merged.map(normalizeLocationWhitespace))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  )
+}
+
 function savePageState(uploadResult, analyseResult, rowAiByType) {
   try {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
@@ -624,20 +692,9 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
 
   const listOrDash = (arr) => (arr && arr.length ? arr.join(', ') : '—')
 
-  /** One clean string per site — easier to read and to paste into geocoding. */
+  /** One line per distinct site: dedupe, merge short codes (LLI/SGI/SGL → org), KOGGALA 2 → KOGGALA. */
   function normalizedLocations(arr) {
-    if (!Array.isArray(arr) || !arr.length) return []
-    const seen = new Set()
-    const out = []
-    for (const raw of arr) {
-      const s = String(raw || '').replace(/\s+/g, ' ').trim()
-      if (!s) continue
-      const key = s.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      out.push(s)
-    }
-    return out
+    return collapseRedundantLocations(arr)
   }
 
   function escapeCsv(value) {
@@ -699,7 +756,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
         {' '}
         <strong>Applying risks</strong> lists Risk Table entries whose <em>When to apply</em> keywords match this asset type (comma-separated keywords).
         {' '}
-        <strong>Locations</strong> are shown as one numbered line per site (deduplicated) so you can copy each into Google Maps or a geocoding API.
+        <strong>Locations</strong> are one numbered line per distinct site: exact duplicates removed, short codes like LLI/SGI/SGL under the same company collapse to one company line, and KOGGALA / KOGGALA 2 merge — so geocoding uses fewer API calls.
       </p>
       <div className="fa-summary-row">
         <div className="fa-summary-card">
