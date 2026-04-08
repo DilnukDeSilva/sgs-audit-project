@@ -661,6 +661,260 @@
   word-break: break-word;
 }
 
+.fa-location-li {
+  list-style-position: outside;
+}
+
+.fa-location-block {
+  width: 100%;
+}
+
+.fa-location-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.fa-location-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.fa-geocode-btn,
+.fa-ambee-btn,
+.fa-weather-btn {
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.fa-geocode-btn:hover:not(:disabled),
+.fa-ambee-btn:hover:not(:disabled),
+.fa-weather-btn:hover {
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+
+.fa-geocode-btn:disabled,
+.fa-ambee-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.fa-ambee-panel {
+  margin-top: 8px;
+  max-width: 100%;
+}
+
+.fa-ambee-coords {
+  font-size: 11px;
+  color: var(--text-m);
+  margin-bottom: 6px;
+}
+
+.fa-ambee-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 10px;
+  line-height: 1.35;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text-h);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fa-geocode-inline {
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.fa-geocode-coords {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.fa-geocode-place,
+.fa-geocode-alt {
+  color: var(--text-m);
+  font-weight: 400;
+}
+
+.fa-geocode-err {
+  background: rgba(220, 53, 69, 0.08);
+  border: 1px solid rgba(220, 53, 69, 0.25);
+}
+
+.disasters-api-meta {
+  margin: 0 0 12px;
+}
+
+.disasters-table-wrap {
+  margin-top: 8px;
+}
+
+.disasters-events-table {
+  font-size: 12px;
+}
+
+.disasters-events-table td {
+  vertical-align: top;
+}
+
+.disasters-col-event {
+  max-width: min(360px, 42vw);
+  word-break: break-word;
+}
+
+.disasters-col-date {
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-m);
+}
+
+.disasters-severity {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-weight: 500;
+}
+
+.fa-location-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.weather-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.weather-page h1 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.weather-sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-m);
+}
+
+.weather-back {
+  margin-bottom: 16px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  cursor: pointer;
+}
+
+.weather-back:hover {
+  border-color: var(--accent);
+}
+
+.weather-section {
+  margin-bottom: 24px;
+}
+
+.weather-section h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.weather-geocode-note {
+  margin: 0 0 10px;
+}
+
+.weather-geo-meta {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-m);
+}
+
+.weather-current-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.weather-current-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  font-size: 13px;
+}
+
+.weather-current-item strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-m);
+  margin-bottom: 4px;
+}
+
+.weather-forecast-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.weather-forecast-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.weather-forecast-table th,
+.weather-forecast-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.weather-forecast-table th {
+  background: var(--code-bg);
+  font-weight: 600;
+}
+
+.weather-forecast-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.weather-error {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  color: var(--text-h);
+  font-size: 14px;
+}
+
 .fa-risks-col {
   min-width: 140px;
   max-width: 220px;

@@ -3,6 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+/** Optional; forwarded as &country= for OpenWeather (e.g. LK). See backend OPENWEATHER_GEO_COUNTRY. */
+const GEO_COUNTRY_QS = (import.meta.env.VITE_DEFAULT_GEO_COUNTRY || '').trim()
+  ? `&country=${encodeURIComponent(import.meta.env.VITE_DEFAULT_GEO_COUNTRY.trim())}`
+  : ''
 const SESSION_KEY = 'sgs_enter_data_state'
 
 /** Normalize for matching asset type keywords from risk "when to apply" lists. */
@@ -677,8 +681,12 @@ function AiFormattedLines({ text, splitSideBySide = true }) {
 }
 
 function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoading, onAiForType }) {
+  const navigate = useNavigate()
+  const { token } = useAuth()
   const { table = [], summary = {} } = result
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState({})
+  /** `${typeKey}-${li}` → { status, lat, lon, name, country, geocode_query, message } */
+  const [geocodeState, setGeocodeState] = useState({})
 
   function toggleAiPanel(typeKey) {
     setAiPanelCollapsed((prev) => ({
@@ -692,7 +700,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
 
   const listOrDash = (arr) => (arr && arr.length ? arr.join(', ') : '—')
 
-  /** One line per distinct site: dedupe, merge short codes (LLI/SGI/SGL → org), KOGGALA 2 → KOGGALA. */
+  /** One line per distinct site: dedupe, merge short codes (LLI/SGI/SGL → org), KOGGALA 2 → KOGGALA.. */
   function normalizedLocations(arr) {
     return collapseRedundantLocations(arr)
   }
@@ -703,6 +711,39 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
       return `"${str.replace(/"/g, '""')}"`
     }
     return str
+  }
+
+  async function handleGeocodeClick(loc, typeKey, li) {
+    const key = `${typeKey}-${li}`
+    if (!token) return
+    setGeocodeState((prev) => ({ ...prev, [key]: { status: 'loading' } }))
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/weather/geocode?q=${encodeURIComponent(loc)}${GEO_COUNTRY_QS}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Geocoding failed.')
+      setGeocodeState((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'ok',
+          lat: data.lat,
+          lon: data.lon,
+          name: data.name,
+          state: data.state,
+          country: data.country,
+          geocode_query: data.geocode_query,
+          place_extracted: data.place_extracted,
+          otherMatches: Math.max(0, (data.geocoding?.length || 0) - 1),
+        },
+      }))
+    } catch (e) {
+      setGeocodeState((prev) => ({
+        ...prev,
+        [key]: { status: 'err', message: e.message || 'Geocoding failed.' },
+      }))
+    }
   }
 
   function handleDownloadTable() {
@@ -756,7 +797,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
         {' '}
         <strong>Applying risks</strong> lists Risk Table entries whose <em>When to apply</em> keywords match this asset type (comma-separated keywords).
         {' '}
-        <strong>Locations</strong> are one numbered line per distinct site: exact duplicates removed, short codes like LLI/SGI/SGL under the same company collapse to one company line, and KOGGALA / KOGGALA 2 merge — so geocoding uses fewer API calls.
+        <strong>Locations</strong> are one numbered line per distinct site: exact duplicates removed, short codes like LLI/SGI/SGL under the same company collapse to one company line, and KOGGALA / KOGGALA 2 merge — so geocoding uses fewer API calls. Use <strong>Geocode</strong> for coordinates (OpenWeather), <strong>Disasters</strong> for the Ambee natural-disaster page (uses Geocode coordinates when you already ran Geocode), or <strong>Weather</strong> for the full weather page.
       </p>
       <div className="fa-summary-row">
         <div className="fa-summary-card">
@@ -811,7 +852,92 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                         {locs.length ? (
                           <ol className="fa-location-list" title="One address or site per line — use for geocoding">
                             {locs.map((loc, li) => (
-                              <li key={`${typeKey}-loc-${li}`}>{loc}</li>
+                              <li key={`${typeKey}-loc-${li}`} className="fa-location-li">
+                                <div className="fa-location-block">
+                                  <div className="fa-location-row">
+                                    <div className="fa-location-actions">
+                                      <button
+                                        type="button"
+                                        className="fa-geocode-btn"
+                                        title="Get latitude and longitude (OpenWeather Geocoding API)"
+                                        onClick={() => handleGeocodeClick(loc, typeKey, li)}
+                                        disabled={geocodeState[`${typeKey}-${li}`]?.status === 'loading'}
+                                      >
+                                        {geocodeState[`${typeKey}-${li}`]?.status === 'loading' ? '…' : 'Geocode'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="fa-ambee-btn"
+                                        title="Open Ambee natural disasters for this location (uses Geocode lat/lon when available)"
+                                        onClick={() => {
+                                          const key = `${typeKey}-${li}`
+                                          const g = geocodeState[key]
+                                          const hasCoords =
+                                            g?.status === 'ok' && g.lat != null && g.lon != null
+                                          const coordQs = hasCoords
+                                            ? `&lat=${encodeURIComponent(String(g.lat))}&lng=${encodeURIComponent(String(g.lon))}`
+                                            : ''
+                                          navigate(
+                                            `/disasters?q=${encodeURIComponent(loc)}&asset=${encodeURIComponent(typeKey)}${coordQs}`
+                                          )
+                                        }}
+                                      >
+                                        Disasters
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="fa-weather-btn"
+                                        title="Geocoding, current weather, and forecast (OpenWeather)"
+                                        onClick={() =>
+                                          navigate(
+                                            `/weather?q=${encodeURIComponent(loc)}&asset=${encodeURIComponent(typeKey)}`
+                                          )
+                                        }
+                                      >
+                                        Weather
+                                      </button>
+                                    </div>
+                                    <span className="fa-location-text">{loc}</span>
+                                  </div>
+                                  {geocodeState[`${typeKey}-${li}`]?.status === 'ok' &&
+                                    geocodeState[`${typeKey}-${li}`].lat != null &&
+                                    geocodeState[`${typeKey}-${li}`].lon != null && (
+                                      <div className="fa-geocode-inline" role="status">
+                                      <span className="fa-geocode-coords">
+                                        Lat {Number(geocodeState[`${typeKey}-${li}`].lat).toFixed(5)}, Lon{' '}
+                                        {Number(geocodeState[`${typeKey}-${li}`].lon).toFixed(5)}
+                                      </span>
+                                      {(geocodeState[`${typeKey}-${li}`].name ||
+                                        geocodeState[`${typeKey}-${li}`].country) && (
+                                        <span className="fa-geocode-place">
+                                          {' '}
+                                          (
+                                          {[
+                                            geocodeState[`${typeKey}-${li}`].name,
+                                            geocodeState[`${typeKey}-${li}`].state,
+                                            geocodeState[`${typeKey}-${li}`].country,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(', ')}
+                                          )
+                                        </span>
+                                      )}
+                                      {geocodeState[`${typeKey}-${li}`].otherMatches > 0 && (
+                                        <span className="fa-geocode-alt">
+                                          {' '}
+                                          +{geocodeState[`${typeKey}-${li}`].otherMatches} other match
+                                          {geocodeState[`${typeKey}-${li}`].otherMatches === 1 ? '' : 'es'}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {geocodeState[`${typeKey}-${li}`]?.status === 'err' && (
+                                    <div className="fa-geocode-inline fa-geocode-err" role="alert">
+                                      {geocodeState[`${typeKey}-${li}`].message}
+                                    </div>
+                                  )}
+                                </div>
+                              </li>
                             ))}
                           </ol>
                         ) : (
