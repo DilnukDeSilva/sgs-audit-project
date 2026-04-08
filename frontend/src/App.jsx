@@ -5,6 +5,8 @@ import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import EnterDataPage from './pages/EnterDataPage'
 import RiskTablePage from './pages/RiskTablePage'
+import WeatherLocationPage from './pages/WeatherLocationPage'
+import DisastersLocationPage from './pages/DisastersLocationPage'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -42,6 +44,14 @@ export default function App() {
           <Route
             path="/risk-table"
             element={<ProtectedRoute><RiskTablePage /></ProtectedRoute>}
+          />
+          <Route
+            path="/weather"
+            element={<ProtectedRoute><WeatherLocationPage /></ProtectedRoute>}
+          />
+          <Route
+            path="/disasters"
+            element={<ProtectedRoute><DisastersLocationPage /></ProtectedRoute>}
           />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

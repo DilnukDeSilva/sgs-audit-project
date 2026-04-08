@@ -1,12 +1,15 @@
 import os
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
-load_dotenv()
+# Load backend/.env regardless of current working directory (e.g. project root vs backend/).
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=_env_path, override=True)
 
 
 def create_app():
@@ -45,11 +48,15 @@ def create_app():
     from routes.data import data_bp
     from routes.ai import ai_bp
     from routes.risks import risks_bp
+    from routes.weather import weather_bp
+    from routes.disasters import disasters_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(templates_bp)
     app.register_blueprint(data_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(risks_bp)
+    app.register_blueprint(weather_bp)
+    app.register_blueprint(disasters_bp)
 
     # ------------------------------------------------------------------
     # Core routes
