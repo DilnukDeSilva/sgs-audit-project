@@ -42,9 +42,9 @@ export default function RegisterPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <h1 className="auth-title">Create an account</h1>
-          <p className="auth-subtitle">Get started with SGS Audit today</p>
+          <p className="auth-subtitle">Get started with IM-PACT-A Audit today</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>

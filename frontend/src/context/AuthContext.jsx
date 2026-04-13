@@ -1,7 +1,12 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 
 const AuthContext = createContext(null)
 const STORAGE_KEY = 'sgs_auth'
+const SESSION_KEYS_TO_CLEAR_ON_LOGOUT = [
+  'sgs_enter_data_state',
+  'sgs_fixed_assets_geocode_cache',
+  'sgs_fixed_assets_geocode_selected',
+]
 
 function loadAuth() {
   try {
@@ -14,6 +19,13 @@ function loadAuth() {
 
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(loadAuth)
+
+  useEffect(() => {
+    if (auth?.accessToken) return
+    for (const key of SESSION_KEYS_TO_CLEAR_ON_LOGOUT) {
+      sessionStorage.removeItem(key)
+    }
+  }, [auth?.accessToken])
 
   const login = useCallback((data) => {
     const payload = {
