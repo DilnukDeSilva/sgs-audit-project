@@ -7,6 +7,7 @@ import EnterDataPage from './pages/EnterDataPage'
 import RiskTablePage from './pages/RiskTablePage'
 import WeatherLocationPage from './pages/WeatherLocationPage'
 import DisastersLocationPage from './pages/DisastersLocationPage'
+import DisastersHistoryPage from './pages/DisastersHistoryPage'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -52,6 +53,10 @@ export default function App() {
           <Route
             path="/disasters"
             element={<ProtectedRoute><DisastersLocationPage /></ProtectedRoute>}
+          />
+          <Route
+            path="/disasters-history"
+            element={<ProtectedRoute><DisastersHistoryPage /></ProtectedRoute>}
           />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

@@ -1,8 +1,8 @@
 """
-Ambee Natural Disasters API (latest by lat/lng).
+Ambee Natural Disasters API (latest and history by lat/lng).
 
 Flow: resolve coordinates with OpenWeather geocoding (same rules as /api/weather/*),
-then call https://api.ambeedata.com/disasters/latest/by-lat-lng with header x-api-key.
+then call Ambee with header x-api-key.
 
 Docs: https://docs.ambeedata.com/apis/natural-disasters
 """
@@ -25,6 +25,7 @@ from routes.weather import _backend_env_path, _geocode_pipeline
 disasters_bp = Blueprint("disasters", __name__, url_prefix="/api/disasters")
 
 AMBEE_LATEST_URL = "https://api.ambeedata.com/disasters/latest/by-lat-lng"
+AMBEE_HISTORY_URL = "https://api.ambeedata.com/disasters/history/by-lat-lng"
 _UA = "Mozilla/5.0 (compatible; SGS-Audit/1.0)"
 
 
@@ -32,16 +33,7 @@ def _load_env():
     load_dotenv(dotenv_path=_backend_env_path(), override=True)
 
 
-def _ambee_latest(lat: float, lng: float, api_key: str, limit: int, page: int):
-    params = urlencode(
-        {
-            "lat": lat,
-            "lng": lng,
-            "limit": max(1, min(int(limit), 50)),
-            "page": max(1, int(page)),
-        }
-    )
-    url = f"{AMBEE_LATEST_URL}?{params}"
+def _ambee_request_json(url: str, api_key: str):
     req = Request(
         url,
         headers={
@@ -67,64 +59,89 @@ def _ambee_latest(lat: float, lng: float, api_key: str, limit: int, page: int):
         raise RuntimeError(f"Ambee HTTP {e.code}: {msg}") from e
 
 
-@disasters_bp.get("/latest-by-location")
-@jwt_required()
-def disasters_latest_by_location():
+def _ambee_latest(lat: float, lng: float, api_key: str, limit: int, page: int):
+    params = urlencode(
+        {
+            "lat": lat,
+            "lng": lng,
+            "limit": max(1, min(int(limit), 50)),
+            "page": max(1, int(page)),
+        }
+    )
+    url = f"{AMBEE_LATEST_URL}?{params}"
+    return _ambee_request_json(url, api_key)
+
+
+def _ambee_history(
+    lat: float,
+    lng: float,
+    from_s: str,
+    to_s: str,
+    api_key: str,
+    limit: int,
+    page: int,
+):
+    params = urlencode(
+        {
+            "lat": lat,
+            "lng": lng,
+            "from": from_s.strip(),
+            "to": to_s.strip(),
+            "limit": max(1, min(int(limit), 50)),
+            "page": max(1, int(page)),
+        }
+    )
+    url = f"{AMBEE_HISTORY_URL}?{params}"
+    return _ambee_request_json(url, api_key)
+
+
+def _resolve_lat_lng_geocode(owm_key: str):
     """
-    Geocode with OpenWeather (unless lat & lng are supplied), then Ambee latest disasters.
-
-    Query:
-      q — location label (same as /api/weather/geocode); required if lat/lng omitted.
-      lat, lng — optional; if both set, OpenWeather is skipped.
-      country — optional; forwarded to geocode (see weather routes).
-      limit, page — Ambee pagination (default limit=5, page=1).
+    From request args: lat+lng OR q (+ OpenWeather).
+    Returns (geocode_info dict, lat_f, lng_f) or (None, None, error_response) where error is (body, status).
     """
-    _load_env()
-    owm_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
-    ambee_key = os.getenv("AMBEE_API_KEY", "").strip()
-
-    if not ambee_key:
-        return jsonify({"message": "Ambee is not configured (missing AMBEE_API_KEY)."}), 503
-
     lat_q = request.args.get("lat")
     lng_q = request.args.get("lng")
     q = (request.args.get("q") or "").strip()
-
-    limit = request.args.get("limit", default=5, type=int) or 5
-    page = request.args.get("page", default=1, type=int) or 1
-
-    geocode_info: dict | None = None
 
     if lat_q is not None and lng_q is not None and str(lat_q).strip() != "" and str(lng_q).strip() != "":
         try:
             lat_f = float(lat_q)
             lng_f = float(lng_q)
         except (TypeError, ValueError):
-            return jsonify({"message": "Invalid lat or lng."}), 400
+            return None, None, None, (jsonify({"message": "Invalid lat or lng."}), 400)
         geocode_info = {"source": "coordinates", "lat": lat_f, "lng": lng_f}
-    elif q:
+        return geocode_info, lat_f, lng_f, None
+
+    if q:
         if not owm_key:
-            return jsonify({"message": "OpenWeather is not configured (missing OPENWEATHER_API_KEY)."}), 503
+            return None, None, None, (
+                jsonify({"message": "OpenWeather is not configured (missing OPENWEATHER_API_KEY)."}),
+                503,
+            )
         try:
             raw_q, place_only, geo_q, geo = _geocode_pipeline(q, owm_key)
         except HTTPError as e:
-            return jsonify({"message": f"Geocoding failed: {e.code}"}), 502
+            return None, None, None, (jsonify({"message": f"Geocoding failed: {e.code}"}), 502)
         except URLError as e:
-            return jsonify({"message": f"Network error: {e.reason!s}"}), 502
+            return None, None, None, (jsonify({"message": f"Network error: {e.reason!s}"}), 502)
         except Exception as exc:
-            return jsonify({"message": str(exc)}), 502
+            return None, None, None, (jsonify({"message": str(exc)}), 502)
 
         if not geo:
-            return jsonify({
-                "message": "No location found for geocoding. Try a shorter place name or country=LK.",
-                "geocode": {
-                    "source": "openweather",
-                    "query": q,
-                    "place_extracted": place_only,
-                    "geocode_query": geo_q,
-                },
-                "ambee": None,
-            }), 404
+            return None, None, None, (
+                jsonify({
+                    "message": "No location found for geocoding. Try a shorter place name or country=LK.",
+                    "geocode": {
+                        "source": "openweather",
+                        "query": q,
+                        "place_extracted": place_only,
+                        "geocode_query": geo_q,
+                    },
+                    "ambee": None,
+                }),
+                404,
+            )
 
         first = geo[0]
         lat_f = float(first["lat"])
@@ -140,8 +157,39 @@ def disasters_latest_by_location():
             "state": first.get("state"),
             "country": first.get("country"),
         }
-    else:
-        return jsonify({"message": "Provide q= (location) or both lat= and lng=."}), 400
+        return geocode_info, lat_f, lng_f, None
+
+    return None, None, None, (
+        jsonify({"message": "Provide q= (location) or both lat= and lng=."}),
+        400,
+    )
+
+
+@disasters_bp.get("/latest-by-location")
+@jwt_required()
+def disasters_latest_by_location():
+    """
+    Geocode with OpenWeather (unless lat & lng are supplied), then Ambee latest disasters.
+
+    Query:
+      q — location label; required if lat/lng omitted.
+      lat, lng — optional; if both set, OpenWeather is skipped.
+      limit, page — Ambee pagination (default limit=5, page=1).
+    """
+    _load_env()
+    owm_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
+    ambee_key = os.getenv("AMBEE_API_KEY", "").strip()
+
+    if not ambee_key:
+        return jsonify({"message": "Ambee is not configured (missing AMBEE_API_KEY)."}), 503
+
+    limit = request.args.get("limit", default=5, type=int) or 5
+    page = request.args.get("page", default=1, type=int) or 1
+
+    geocode_info, lat_f, lng_f, err = _resolve_lat_lng_geocode(owm_key)
+    if err:
+        body, status = err
+        return body, status
 
     try:
         ambee_data = _ambee_latest(lat_f, lng_f, ambee_key, limit, page)
@@ -153,3 +201,53 @@ def disasters_latest_by_location():
         return jsonify({"message": str(exc), "geocode": geocode_info, "ambee": None}), 502
 
     return jsonify({"geocode": geocode_info, "ambee": ambee_data}), 200
+
+
+@disasters_bp.get("/history-by-location")
+@jwt_required()
+def disasters_history_by_location():
+    """
+    Geocode (unless lat & lng supplied), then Ambee history by lat/lng.
+
+    Query:
+      q, lat, lng — same as /latest-by-location.
+      from, to — required. Format YYYY-MM-DD HH:mm:ss (URL-encoded spaces allowed).
+      limit, page — Ambee pagination (default limit=20, page=1).
+    """
+    _load_env()
+    owm_key = os.getenv("OPENWEATHER_API_KEY", "").strip()
+    ambee_key = os.getenv("AMBEE_API_KEY", "").strip()
+
+    if not ambee_key:
+        return jsonify({"message": "Ambee is not configured (missing AMBEE_API_KEY)."}), 503
+
+    from_s = (request.args.get("from") or "").strip()
+    to_s = (request.args.get("to") or "").strip()
+    if not from_s or not to_s:
+        return jsonify({
+            "message": "Query parameters from= and to= are required (format YYYY-MM-DD HH:mm:ss).",
+        }), 400
+
+    limit = request.args.get("limit", default=20, type=int) or 20
+    page = request.args.get("page", default=1, type=int) or 1
+
+    geocode_info, lat_f, lng_f, err = _resolve_lat_lng_geocode(owm_key)
+    if err:
+        body, status = err
+        return body, status
+
+    try:
+        ambee_data = _ambee_history(lat_f, lng_f, from_s, to_s, ambee_key, limit, page)
+    except RuntimeError as e:
+        return jsonify({"message": str(e), "geocode": geocode_info, "ambee": None}), 502
+    except URLError as e:
+        return jsonify({"message": f"Network error: {e.reason!s}", "geocode": geocode_info, "ambee": None}), 502
+    except Exception as exc:
+        return jsonify({"message": str(exc), "geocode": geocode_info, "ambee": None}), 502
+
+    return jsonify({
+        "geocode": geocode_info,
+        "from": from_s,
+        "to": to_s,
+        "ambee": ambee_data,
+    }), 200
