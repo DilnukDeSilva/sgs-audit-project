@@ -1,5 +1,7 @@
 # React + Vite
 
+This app’s features, env vars, and API usage are documented in the **repository root `README.md`**.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

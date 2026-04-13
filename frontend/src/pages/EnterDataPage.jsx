@@ -578,7 +578,7 @@ export default function EnterDataPage() {
             {uploadError && <span className="field-error">{uploadError}</span>}
             {uploadResult && (
               <div className="ed-upload-success">
-                <span>✅ Extracted {uploadResult.sheets.length} sheet{uploadResult.sheets.length !== 1 ? 's' : ''}</span>
+                <span>Extracted {uploadResult.sheets.length} sheet{uploadResult.sheets.length !== 1 ? 's' : ''}</span>
                 <button className="auth-link ed-txt-btn" onClick={handleDownloadText}>
                   Download .txt
                 </button>
@@ -595,7 +595,7 @@ export default function EnterDataPage() {
             disabled={analysing || !uploadResult}
             title={!uploadResult ? 'Upload a file first' : ''}
           >
-            {analysing ? <span className="btn-spinner" /> : '🔍 Analyse'}
+            {analysing ? <span className="btn-spinner" /> : 'Analyse'}
           </button>
           {!uploadResult && (
             <span className="ed-file-note" style={{ marginLeft: 12 }}>Upload a file first to enable analysis</span>

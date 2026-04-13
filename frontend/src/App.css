@@ -827,6 +827,29 @@
   color: var(--text-m);
 }
 
+.disasters-impact-col {
+  min-width: 210px;
+}
+
+.disasters-estimate-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.disasters-impact-result {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.disasters-impact-reason {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-m);
+}
+
 .disasters-severity {
   display: inline-block;
   font-size: 11px;
