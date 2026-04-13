@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { ambeeEventTypeLabel } from '../utils/ambeeEventTypes'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 const GEO_COUNTRY_QS = (import.meta.env.VITE_DEFAULT_GEO_COUNTRY || '').trim()
@@ -67,7 +68,7 @@ export default function DisastersLocationPage() {
     <div className="dashboard">
       <header className="dash-header">
         <div className="dash-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <span className="dash-brand-name">Audit Platform</span>
         </div>
         <div className="dash-user">
@@ -177,7 +178,9 @@ export default function DisastersLocationPage() {
                       {rows.map((ev) => (
                         <tr key={ev.event_id || ev.source_event_id}>
                           <td className="disasters-col-event">{ev.event_name || '—'}</td>
-                          <td>{ev.event_type || '—'}</td>
+                          <td title={ev.event_type ? `Ambee code: ${ev.event_type}` : undefined}>
+                            {ambeeEventTypeLabel(ev.event_type)}
+                          </td>
                           <td>
                             <span className="disasters-severity">{ev.proximity_severity_level || '—'}</span>
                           </td>

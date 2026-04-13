@@ -8,6 +8,39 @@ const GEO_COUNTRY_QS = (import.meta.env.VITE_DEFAULT_GEO_COUNTRY || '').trim()
   ? `&country=${encodeURIComponent(import.meta.env.VITE_DEFAULT_GEO_COUNTRY.trim())}`
   : ''
 const SESSION_KEY = 'sgs_enter_data_state'
+const GEOCODE_CACHE_KEY = 'sgs_fixed_assets_geocode_cache'
+const GEOCODE_SELECTED_KEY = 'sgs_fixed_assets_geocode_selected'
+const LOCATION_DONE_KEY = 'sgs_fixed_assets_location_done'
+
+function loadGeocodeCache() {
+  try {
+    const raw = sessionStorage.getItem(GEOCODE_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function loadSelectedGeocodeKey() {
+  try {
+    return sessionStorage.getItem(GEOCODE_SELECTED_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function loadDoneLocationMap() {
+  try {
+    const raw = sessionStorage.getItem(LOCATION_DONE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
 
 /** Normalize for matching asset type keywords from risk "when to apply" lists. */
 function normalizeForMatch(s) {
@@ -137,6 +170,16 @@ function loadPageState() {
   } catch { return null }
 }
 
+function clearEnterDataSessionState() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY)
+    sessionStorage.removeItem(GEOCODE_CACHE_KEY)
+    sessionStorage.removeItem(GEOCODE_SELECTED_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function EnterDataPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -163,6 +206,7 @@ export default function EnterDataPage() {
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??'
 
   function handleLogout() {
+    clearEnterDataSessionState()
     logout()
     navigate('/login', { replace: true })
   }
@@ -441,7 +485,7 @@ export default function EnterDataPage() {
       {/* Header */}
       <header className="dash-header">
         <div className="dash-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <span className="dash-brand-name">Audit Platform</span>
         </div>
         <div className="dash-user">
@@ -455,7 +499,13 @@ export default function EnterDataPage() {
       <main className="dash-main">
         {/* Back + title */}
         <div className="ed-header">
-          <button className="btn-back" onClick={() => navigate('/dashboard')}>
+          <button
+            className="btn-back"
+            onClick={() => {
+              clearEnterDataSessionState()
+              navigate('/dashboard')
+            }}
+          >
             ← Back to Dashboard
           </button>
           <h2 className="dash-welcome-title" style={{ margin: 0 }}>Enter Data</h2>
@@ -684,9 +734,91 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
   const navigate = useNavigate()
   const { token } = useAuth()
   const { table = [], summary = {} } = result
+  const analysisId = result?._analysisId || result?.id || ''
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState({})
   /** `${typeKey}-${li}` → { status, lat, lon, name, country, geocode_query, message } */
-  const [geocodeState, setGeocodeState] = useState({})
+  const [geocodeState, setGeocodeState] = useState(() => loadGeocodeCache())
+  /** Last row where Geocode was clicked; persists until another row’s Geocode is used. */
+  const [selectedGeocodeKey, setSelectedGeocodeKey] = useState(() => loadSelectedGeocodeKey())
+  /** `${typeKey}-${li}` -> boolean */
+  const [doneByLocationKey, setDoneByLocationKey] = useState(() => {
+    if (result?.location_done && typeof result.location_done === 'object') {
+      return result.location_done
+    }
+    return loadDoneLocationMap()
+  })
+
+  useEffect(() => {
+    try {
+      let prev = {}
+      try {
+        const raw = sessionStorage.getItem(GEOCODE_CACHE_KEY)
+        if (raw) prev = JSON.parse(raw) || {}
+      } catch {
+        /* ignore */
+      }
+      const toSave = { ...prev }
+      for (const [k, v] of Object.entries(geocodeState)) {
+        if (v && (v.status === 'ok' || v.status === 'err')) {
+          toSave[k] = v
+        }
+      }
+      sessionStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(toSave))
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [geocodeState])
+
+  useEffect(() => {
+    try {
+      if (selectedGeocodeKey) {
+        sessionStorage.setItem(GEOCODE_SELECTED_KEY, selectedGeocodeKey)
+      } else {
+        sessionStorage.removeItem(GEOCODE_SELECTED_KEY)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [selectedGeocodeKey])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LOCATION_DONE_KEY, JSON.stringify(doneByLocationKey))
+    } catch {
+      /* ignore */
+    }
+  }, [doneByLocationKey])
+
+  useEffect(() => {
+    if (result?.location_done && typeof result.location_done === 'object') {
+      setDoneByLocationKey(result.location_done)
+    }
+  }, [analysisId, result?.location_done])
+
+  useEffect(() => {
+    if (!token || !analysisId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/data/analyses/${analysisId}/location-done`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (data.location_done && typeof data.location_done === 'object') {
+          setDoneByLocationKey(data.location_done)
+        } else {
+          setDoneByLocationKey({})
+        }
+      } catch {
+        /* keep local fallback */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [analysisId, token])
 
   function toggleAiPanel(typeKey) {
     setAiPanelCollapsed((prev) => ({
@@ -716,6 +848,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
   async function handleGeocodeClick(loc, typeKey, li) {
     const key = `${typeKey}-${li}`
     if (!token) return
+    setSelectedGeocodeKey(key)
     setGeocodeState((prev) => ({ ...prev, [key]: { status: 'loading' } }))
     try {
       const res = await fetch(
@@ -744,6 +877,34 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
         [key]: { status: 'err', message: e.message || 'Geocoding failed.' },
       }))
     }
+  }
+
+  async function persistDoneMap(next) {
+    if (!token || !analysisId) return
+    try {
+      await fetch(`${BASE_URL}/api/data/analyses/${analysisId}/location-done`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ location_done: next }),
+      })
+    } catch {
+      /* keep local state even if DB save fails */
+    }
+  }
+
+  function toggleLocationDone(typeKey, li) {
+    const key = `${typeKey}-${li}`
+    const nextMap = { ...doneByLocationKey }
+    if (nextMap[key]) {
+      delete nextMap[key]
+    } else {
+      nextMap[key] = true
+    }
+    setDoneByLocationKey(nextMap)
+    persistDoneMap(nextMap)
   }
 
   function handleDownloadTable() {
@@ -797,7 +958,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
         {' '}
         <strong>Applying risks</strong> lists Risk Table entries whose <em>When to apply</em> keywords match this asset type (comma-separated keywords).
         {' '}
-        <strong>Locations</strong> are one numbered line per distinct site: exact duplicates removed, short codes like LLI/SGI/SGL under the same company collapse to one company line, and KOGGALA / KOGGALA 2 merge — so geocoding uses fewer API calls. Use <strong>Geocode</strong> for coordinates (OpenWeather), <strong>Disasters</strong> for the Ambee natural-disaster page (uses Geocode coordinates when you already ran Geocode), or <strong>Weather</strong> for the full weather page.
+        <strong>Locations</strong> are one numbered line per distinct site: exact duplicates removed, short codes like LLI/SGI/SGL under the same company collapse to one company line, and KOGGALA / KOGGALA 2 merge — so geocoding uses fewer API calls. Use <strong>Geocode</strong> for coordinates (OpenWeather), <strong>Disasters</strong> / <strong>Ambee History</strong> for Ambee (latest vs history with date range; both use Geocode coordinates when available), or <strong>Weather</strong> for the full weather page.
       </p>
       <div className="fa-summary-row">
         <div className="fa-summary-card">
@@ -852,7 +1013,15 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                         {locs.length ? (
                           <ol className="fa-location-list" title="One address or site per line — use for geocoding">
                             {locs.map((loc, li) => (
-                              <li key={`${typeKey}-loc-${li}`} className="fa-location-li">
+                              (() => {
+                                const rowKey = `${typeKey}-${li}`
+                                const isSelected = selectedGeocodeKey === rowKey
+                                const isDone = !!doneByLocationKey[rowKey]
+                                return (
+                              <li
+                                key={`${typeKey}-loc-${li}`}
+                                className={`fa-location-li${isSelected ? ' fa-location-li--geocode-selected' : ''}${isDone ? ' fa-location-li--done' : ''}`}
+                              >
                                 <div className="fa-location-block">
                                   <div className="fa-location-row">
                                     <div className="fa-location-actions">
@@ -861,17 +1030,16 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                                         className="fa-geocode-btn"
                                         title="Get latitude and longitude (OpenWeather Geocoding API)"
                                         onClick={() => handleGeocodeClick(loc, typeKey, li)}
-                                        disabled={geocodeState[`${typeKey}-${li}`]?.status === 'loading'}
+                                        disabled={geocodeState[rowKey]?.status === 'loading'}
                                       >
-                                        {geocodeState[`${typeKey}-${li}`]?.status === 'loading' ? '…' : 'Geocode'}
+                                        {geocodeState[rowKey]?.status === 'loading' ? '…' : 'Geocode'}
                                       </button>
                                       <button
                                         type="button"
                                         className="fa-ambee-btn"
                                         title="Open Ambee natural disasters for this location (uses Geocode lat/lon when available)"
                                         onClick={() => {
-                                          const key = `${typeKey}-${li}`
-                                          const g = geocodeState[key]
+                                          const g = geocodeState[rowKey]
                                           const hasCoords =
                                             g?.status === 'ok' && g.lat != null && g.lon != null
                                           const coordQs = hasCoords
@@ -882,7 +1050,25 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                                           )
                                         }}
                                       >
-                                        Disasters
+                                        Ambee Disasters
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="fa-ambee-history-btn"
+                                        title="Ambee disaster history by lat/lng — choose a date range on the next page"
+                                        onClick={() => {
+                                          const g = geocodeState[rowKey]
+                                          const hasCoords =
+                                            g?.status === 'ok' && g.lat != null && g.lon != null
+                                          const coordQs = hasCoords
+                                            ? `&lat=${encodeURIComponent(String(g.lat))}&lng=${encodeURIComponent(String(g.lon))}`
+                                            : ''
+                                          navigate(
+                                            `/disasters-history?q=${encodeURIComponent(loc)}&asset=${encodeURIComponent(typeKey)}${coordQs}`
+                                          )
+                                        }}
+                                      >
+                                        Ambee History
                                       </button>
                                       <button
                                         type="button"
@@ -898,46 +1084,56 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                                       </button>
                                     </div>
                                     <span className="fa-location-text">{loc}</span>
+                                    <button
+                                      type="button"
+                                      className={`fa-done-btn fa-location-done-btn${isDone ? ' is-done' : ''}`}
+                                      title={isDone ? 'Mark this location as not done' : 'Mark this location as done'}
+                                      onClick={() => toggleLocationDone(typeKey, li)}
+                                    >
+                                      {isDone ? 'Done' : 'Mark Done'}
+                                    </button>
                                   </div>
-                                  {geocodeState[`${typeKey}-${li}`]?.status === 'ok' &&
-                                    geocodeState[`${typeKey}-${li}`].lat != null &&
-                                    geocodeState[`${typeKey}-${li}`].lon != null && (
+                                  {geocodeState[rowKey]?.status === 'ok' &&
+                                    geocodeState[rowKey].lat != null &&
+                                    geocodeState[rowKey].lon != null && (
                                       <div className="fa-geocode-inline" role="status">
                                       <span className="fa-geocode-coords">
-                                        Lat {Number(geocodeState[`${typeKey}-${li}`].lat).toFixed(5)}, Lon{' '}
-                                        {Number(geocodeState[`${typeKey}-${li}`].lon).toFixed(5)}
+                                        Lat {Number(geocodeState[rowKey].lat).toFixed(5)}, Lon{' '}
+                                        {Number(geocodeState[rowKey].lon).toFixed(5)}
                                       </span>
-                                      {(geocodeState[`${typeKey}-${li}`].name ||
-                                        geocodeState[`${typeKey}-${li}`].country) && (
+                                      {(geocodeState[rowKey].name ||
+                                        geocodeState[rowKey].country) && (
                                         <span className="fa-geocode-place">
                                           {' '}
                                           (
                                           {[
-                                            geocodeState[`${typeKey}-${li}`].name,
-                                            geocodeState[`${typeKey}-${li}`].state,
-                                            geocodeState[`${typeKey}-${li}`].country,
+                                            geocodeState[rowKey].name,
+                                            geocodeState[rowKey].state,
+                                            geocodeState[rowKey].country,
                                           ]
                                             .filter(Boolean)
                                             .join(', ')}
                                           )
                                         </span>
                                       )}
-                                      {geocodeState[`${typeKey}-${li}`].otherMatches > 0 && (
+                                      {geocodeState[rowKey].otherMatches > 0 && (
                                         <span className="fa-geocode-alt">
                                           {' '}
-                                          +{geocodeState[`${typeKey}-${li}`].otherMatches} other match
-                                          {geocodeState[`${typeKey}-${li}`].otherMatches === 1 ? '' : 'es'}
+                                          +{geocodeState[rowKey].otherMatches} other match
+                                          {geocodeState[rowKey].otherMatches === 1 ? '' : 'es'}
                                         </span>
                                       )}
                                     </div>
                                   )}
-                                  {geocodeState[`${typeKey}-${li}`]?.status === 'err' && (
+                                  {geocodeState[rowKey]?.status === 'err' && (
                                     <div className="fa-geocode-inline fa-geocode-err" role="alert">
-                                      {geocodeState[`${typeKey}-${li}`].message}
+                                      {geocodeState[rowKey].message}
                                     </div>
                                   )}
                                 </div>
                               </li>
+                                )
+                              })()
                             ))}
                           </ol>
                         ) : (
