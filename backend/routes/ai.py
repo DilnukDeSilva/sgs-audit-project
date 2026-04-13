@@ -1,4 +1,5 @@
 import os
+import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -232,6 +233,40 @@ def _resolve_analysis_doc(analysis_id: str, user_id: str):
     return doc, str(doc["_id"])
 
 
+def _build_disaster_impact_prompt(event: dict, working_days_year: int) -> str:
+    """
+    Ask Groq to estimate disrupted working days for a single disaster event.
+    The model must return compact JSON only.
+    """
+    compact_event = {
+        "event_id": event.get("event_id"),
+        "source_event_id": event.get("source_event_id"),
+        "event_name": event.get("event_name"),
+        "event_type": event.get("event_type"),
+        "proximity_severity_level": event.get("proximity_severity_level"),
+        "default_alert_levels": event.get("default_alert_levels"),
+        "date": event.get("date"),
+        "estimated_end_date": event.get("estimated_end_date"),
+        "lat": event.get("lat"),
+        "lng": event.get("lng"),
+    }
+    return (
+        "Estimate business disruption from this Ambee disaster event.\n\n"
+        f"Event JSON:\n{json.dumps(compact_event, ensure_ascii=True)}\n\n"
+        f"Working days in year: {working_days_year}\n\n"
+        "Rules:\n"
+        "1) Use event_type + proximity_severity_level as primary drivers.\n"
+        "2) Use event duration (date -> estimated_end_date) if available.\n"
+        "3) Output integer impacted_days in [0, working_days_year].\n"
+        "4) If uncertain, be conservative.\n"
+        "5) Respond JSON ONLY with this exact schema:\n"
+        "{\n"
+        '  "impacted_days": <integer>,\n'
+        '  "reason": "<max 180 chars>"\n'
+        "}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /api/ai/analyses/<analysis_id>/categorise-type
 # Body: { "asset_type": "..." } — only operational usage for that type is sent to AI.
@@ -425,3 +460,89 @@ def get_ai_result(analysis_id):
             serialised.append(entry)
         out["per_type_summaries"] = serialised
     return jsonify(out), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/ai/disasters/estimate-impact-days
+# Body: { event: {...}, working_days_year?: 260 }
+# ---------------------------------------------------------------------------
+@ai_bp.post("/disasters/estimate-impact-days")
+@jwt_required()
+def estimate_disaster_impact_days():
+    body = request.get_json(silent=True) or {}
+    event = body.get("event")
+    if not isinstance(event, dict):
+        return jsonify({"message": "event (object) is required in JSON body."}), 400
+
+    working_days_year_raw = body.get("working_days_year", 260)
+    try:
+        working_days_year = int(working_days_year_raw)
+    except Exception:
+        return jsonify({"message": "working_days_year must be an integer."}), 400
+    if working_days_year < 1 or working_days_year > 366:
+        return jsonify({"message": "working_days_year must be between 1 and 366."}), 400
+
+    try:
+        client = _get_groq_client()
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 503
+
+    prompt = _build_disaster_impact_prompt(event, working_days_year)
+    model_name = "llama-3.1-8b-instant"
+    try:
+        chat = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You estimate operational disruption days from disaster events. "
+                        "Return strict JSON only. No markdown, no prose."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+            max_tokens=220,
+        )
+        raw = (chat.choices[0].message.content or "").strip()
+    except Exception as e:
+        return jsonify({"message": f"AI request failed: {str(e)}"}), 502
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return jsonify({"message": "AI response was not valid JSON.", "raw": raw}), 502
+
+    try:
+        parsed = json.loads(raw[start:end + 1])
+    except Exception:
+        return jsonify({"message": "AI response JSON parse failed.", "raw": raw}), 502
+
+    try:
+        impacted_days = int(round(float(parsed.get("impacted_days", 0))))
+    except Exception:
+        impacted_days = 0
+    impacted_days = max(0, min(working_days_year, impacted_days))
+
+    ratio = impacted_days / float(working_days_year)
+    reason = str(parsed.get("reason") or "").strip()
+
+    return jsonify({
+        "model": model_name,
+        "event": {
+            "event_id": event.get("event_id"),
+            "source_event_id": event.get("source_event_id"),
+            "event_name": event.get("event_name"),
+            "event_type": event.get("event_type"),
+            "proximity_severity_level": event.get("proximity_severity_level"),
+            "default_alert_levels": event.get("default_alert_levels"),
+        },
+        "estimate": {
+            "impacted_days": impacted_days,
+            "working_days_year": working_days_year,
+            "impact_ratio": round(ratio, 4),
+            "impact_ratio_percent": round(ratio * 100, 2),
+            "reason": reason,
+        },
+    }), 200

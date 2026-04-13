@@ -87,6 +87,9 @@ export default function DisastersHistoryPage() {
   const [payload, setPayload] = useState(null)
   const [windowNotes, setWindowNotes] = useState([])
   const [previewGeo, setPreviewGeo] = useState(null)
+  const [estimatingKey, setEstimatingKey] = useState('')
+  const [estimateByKey, setEstimateByKey] = useState({})
+  const [estimateErrorByKey, setEstimateErrorByKey] = useState({})
 
   const canRequest = (hasCoords || q) && token
   const maxDatetimeLocal = toDatetimeLocalValue(new Date())
@@ -143,6 +146,9 @@ export default function DisastersHistoryPage() {
     setLoading(true)
     setError('')
     setPayload(null)
+    setEstimateByKey({})
+    setEstimateErrorByKey({})
+    setEstimatingKey('')
     try {
       let url = `${BASE_URL}/api/disasters/history-by-location?limit=20&page=1`
       url += `&from=${encodeURIComponent(fromUtc)}&to=${encodeURIComponent(toUtc)}`
@@ -178,6 +184,37 @@ export default function DisastersHistoryPage() {
   const geo = payload?.geocode
   const ambee = payload?.ambee
   const rows = Array.isArray(ambee?.result) ? ambee.result : []
+
+  function eventRowKey(ev) {
+    return (
+      ev.event_id ||
+      ev.source_event_id ||
+      `${ev.event_type || 'ev'}-${ev.date || ev.created_time || 'na'}-${ev.lat || 'x'}-${ev.lng || 'y'}`
+    )
+  }
+
+  async function handleEstimateDays(ev) {
+    const rowKey = eventRowKey(ev)
+    setEstimatingKey(rowKey)
+    setEstimateErrorByKey((prev) => ({ ...prev, [rowKey]: '' }))
+    try {
+      const res = await fetch(`${BASE_URL}/api/ai/disasters/estimate-impact-days`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ event: ev, working_days_year: 260 }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Failed to estimate impacted days.')
+      setEstimateByKey((prev) => ({ ...prev, [rowKey]: data.estimate }))
+    } catch (e) {
+      setEstimateErrorByKey((prev) => ({ ...prev, [rowKey]: e.message || 'Estimate failed.' }))
+    } finally {
+      setEstimatingKey('')
+    }
+  }
 
   return (
     <div className="dashboard">
@@ -366,11 +403,17 @@ export default function DisastersHistoryPage() {
                         <th>Date</th>
                         <th className="fa-num">Lat</th>
                         <th className="fa-num">Lng</th>
+                        <th>Impact estimate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((ev) => (
-                        <tr key={ev.event_id || ev.source_event_id}>
+                      {rows.map((ev) => {
+                        const rowKey = eventRowKey(ev)
+                        const estimate = estimateByKey[rowKey]
+                        const err = estimateErrorByKey[rowKey]
+                        const isBusy = estimatingKey === rowKey
+                        return (
+                        <tr key={rowKey}>
                           <td className="disasters-col-event">{ev.event_name || '—'}</td>
                           <td title={ev.event_type ? `Ambee code: ${ev.event_type}` : undefined}>
                             {ambeeEventTypeLabel(ev.event_type)}
@@ -382,8 +425,30 @@ export default function DisastersHistoryPage() {
                           <td className="disasters-col-date">{ev.date || ev.created_time || '—'}</td>
                           <td className="fa-num">{ev.lat != null ? Number(ev.lat).toFixed(4) : '—'}</td>
                           <td className="fa-num">{ev.lng != null ? Number(ev.lng).toFixed(4) : '—'}</td>
+                          <td className="disasters-impact-col">
+                            <button
+                              type="button"
+                              className="btn-ed btn-ed-outline disasters-estimate-btn"
+                              onClick={() => void handleEstimateDays(ev)}
+                              disabled={isBusy}
+                            >
+                              {isBusy ? 'Estimating…' : 'Estimate days'}
+                            </button>
+                            {estimate && (
+                              <div className="disasters-impact-result">
+                                {estimate.impacted_days} / {estimate.working_days_year} days
+                                {' '}
+                                ({estimate.impact_ratio_percent}%)
+                              </div>
+                            )}
+                            {estimate?.reason && (
+                              <div className="disasters-impact-reason">{estimate.reason}</div>
+                            )}
+                            {err && <div className="field-error">{err}</div>}
+                          </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
