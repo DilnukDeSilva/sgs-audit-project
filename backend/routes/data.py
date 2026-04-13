@@ -407,6 +407,7 @@ def analyse_fixed_assets(upload_id):
         "analysis_id": str(analysis["_id"]),
         "table": table,
         "summary": summary,
+        "location_done": analysis.get("location_done", {}),
     }), 200
 
 
@@ -477,5 +478,67 @@ def get_analysis(analysis_id):
         "type":        doc["type"],
         "table":       doc["table"],
         "summary":     doc["summary"],
+        "location_done": doc.get("location_done", {}),
         "analysed_at": doc["analysed_at"].isoformat(),
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/data/analyses/<analysis_id>/location-done
+# ---------------------------------------------------------------------------
+@data_bp.get("/analyses/<analysis_id>/location-done")
+@jwt_required()
+def get_location_done_state(analysis_id):
+    user_id = get_jwt_identity()
+    try:
+        doc = get_db()["analyses"].find_one({
+            "_id": ObjectId(analysis_id),
+            "user_id": user_id,
+            "type": "fixed_assets",
+        }, {"location_done": 1})
+    except Exception:
+        return jsonify({"message": "Invalid analysis ID."}), 400
+
+    if not doc:
+        return jsonify({"message": "Analysis not found."}), 404
+
+    location_done = doc.get("location_done")
+    if not isinstance(location_done, dict):
+        location_done = {}
+    return jsonify({"location_done": location_done}), 200
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/data/analyses/<analysis_id>/location-done
+# ---------------------------------------------------------------------------
+@data_bp.put("/analyses/<analysis_id>/location-done")
+@jwt_required()
+def update_location_done_state(analysis_id):
+    user_id = get_jwt_identity()
+    payload = request.get_json(silent=True) or {}
+    raw_map = payload.get("location_done", {})
+    if not isinstance(raw_map, dict):
+        return jsonify({"message": "location_done must be an object."}), 400
+
+    cleaned = {}
+    for k, v in raw_map.items():
+        if isinstance(k, str) and bool(v):
+            cleaned[k] = True
+
+    try:
+        updated = get_db()["analyses"].find_one_and_update(
+            {
+                "_id": ObjectId(analysis_id),
+                "user_id": user_id,
+                "type": "fixed_assets",
+            },
+            {"$set": {"location_done": cleaned}},
+            return_document=ReturnDocument.AFTER,
+        )
+    except Exception:
+        return jsonify({"message": "Invalid analysis ID."}), 400
+
+    if not updated:
+        return jsonify({"message": "Analysis not found."}), 404
+
+    return jsonify({"location_done": updated.get("location_done", {})}), 200
