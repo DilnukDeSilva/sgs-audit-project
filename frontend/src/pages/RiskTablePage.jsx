@@ -103,7 +103,7 @@ export default function RiskTablePage() {
     <div className="dashboard">
       <header className="dash-header">
         <div className="dash-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <span className="dash-brand-name">Audit Platform</span>
         </div>
         <div className="dash-user">
@@ -119,7 +119,7 @@ export default function RiskTablePage() {
           <div className="dash-welcome-row">
             <div>
               <h2 className="dash-welcome-title">Risk Table</h2>
-              <p className="dash-welcome-sub">Edit any cell and save changes to database.</p>
+              <p className="dash-welcome-sub">Edit any cell and click save to save changes to database. Click + Add Risk to add a new risk.</p>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn-ed btn-ed-outline" onClick={() => navigate('/dashboard')}>
@@ -139,6 +139,12 @@ export default function RiskTablePage() {
         {success && <div className="ed-upload-success">{success}</div>}
 
         <div className="profile-card">
+          {/* <div className="risk-helper" role="note">
+            <strong>Adding a new risk:</strong> fill each column left to right. Use short labels for
+            <em> Risk</em>/<em> Category</em>, clear sentence-level text for
+            <em> Description</em>/<em> Impact</em>, and comma-separated keywords in
+            <em> When to Apply</em>.
+          </div> */}
           {loading ? (
             <p className="dash-welcome-sub" style={{ margin: 0 }}>Loading risk table...</p>
           ) : (
@@ -170,6 +176,7 @@ export default function RiskTablePage() {
                               className={`risk-input ${inputVariant}`}
                               value={row[c.key] || ''}
                               title={row[c.key] || ''}
+                              aria-label={`Row ${rowIndex + 1} ${c.label}`}
                               spellCheck={false}
                               autoCorrect="off"
                               autoCapitalize="off"
@@ -183,6 +190,7 @@ export default function RiskTablePage() {
                               className={`risk-input ${inputVariant}`}
                               value={row[c.key] || ''}
                               title={row[c.key] || ''}
+                              aria-label={`Row ${rowIndex + 1} ${c.label}`}
                               spellCheck={false}
                               autoCorrect="off"
                               autoCapitalize="off"

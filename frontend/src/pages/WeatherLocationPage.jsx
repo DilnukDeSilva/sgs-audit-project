@@ -58,7 +58,7 @@ export default function WeatherLocationPage() {
     <div className="dashboard">
       <header className="dash-header">
         <div className="dash-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <span className="dash-brand-name">Audit Platform</span>
         </div>
         <div className="dash-user">
