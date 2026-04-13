@@ -87,10 +87,9 @@ export default function DashboardPage() {
     const completed = sessions.filter((s) => s.analysis).length
     const inProgress = total - completed
     return [
-      { label: 'Total Sessions', value: String(total), icon: '📋' },
-      { label: 'In Progress', value: String(inProgress), icon: '🔄' },
-      { label: 'Completed', value: String(completed), icon: '✅' },
-      { label: 'Pending Review', value: '0', icon: '🕐' },
+      { label: 'Total Sessions', value: String(total)},
+      { label: 'In Progress', value: String(inProgress) },
+      { label: 'Completed', value: String(completed) },
     ]
   }, [sessions])
 
@@ -119,7 +118,7 @@ export default function DashboardPage() {
       {/* Top nav */}
       <header className="dash-header">
         <div className="dash-brand">
-          <span className="badge">SGS</span>
+          <span className="badge">IM-PACT-A</span>
           <span className="dash-brand-name">Audit Platform</span>
         </div>
         <div className="dash-user">
@@ -148,9 +147,9 @@ export default function DashboardPage() {
               {/* <button className="btn-enter-data" onClick={() => navigate('/enter-data')}>
                 + Enter Data
               </button> */}
-              <button className="btn-ed btn-ed-primary" onClick={() => navigate('/enter-data')}>
+              {/* <button className="btn-ed btn-ed-primary" onClick={() => navigate('/enter-data')}>
                 Continue last session
-              </button>
+              </button> */}
               <button
                 className="btn-ed btn-ed-outline"
                 onClick={() => {
@@ -159,6 +158,12 @@ export default function DashboardPage() {
                 }}
               >
                 Start new
+              </button>
+              <button
+                className="btn-ed btn-ed-outline"
+                onClick={() => navigate('/risk-table')}
+              >
+                Risk Table
               </button>
             </div>
           </div>
@@ -256,12 +261,6 @@ export default function DashboardPage() {
         <div className="profile-card">
           <div className="dash-welcome-row" style={{ marginBottom: 8 }}>
             <h3 className="profile-card-title" style={{ margin: 0 }}>Account details</h3>
-            <button
-              className="btn-ed btn-ed-outline"
-              onClick={() => navigate('/risk-table')}
-            >
-              Risk Table
-            </button>
           </div>
           <div className="profile-rows">
             <div className="profile-row">
