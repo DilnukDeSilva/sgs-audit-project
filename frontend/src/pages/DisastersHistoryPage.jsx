@@ -90,6 +90,9 @@ export default function DisastersHistoryPage() {
   const [estimatingKey, setEstimatingKey] = useState('')
   const [estimateByKey, setEstimateByKey] = useState({})
   const [estimateErrorByKey, setEstimateErrorByKey] = useState({})
+  const [riskLoading, setRiskLoading] = useState(false)
+  const [riskEstimate, setRiskEstimate] = useState(null)
+  const [riskError, setRiskError] = useState('')
 
   const canRequest = (hasCoords || q) && token
   const maxDatetimeLocal = toDatetimeLocalValue(new Date())
@@ -149,6 +152,9 @@ export default function DisastersHistoryPage() {
     setEstimateByKey({})
     setEstimateErrorByKey({})
     setEstimatingKey('')
+    setRiskEstimate(null)
+    setRiskError('')
+    setRiskLoading(false)
     try {
       let url = `${BASE_URL}/api/disasters/history-by-location?limit=20&page=1`
       url += `&from=${encodeURIComponent(fromUtc)}&to=${encodeURIComponent(toUtc)}`
@@ -213,6 +219,39 @@ export default function DisastersHistoryPage() {
       setEstimateErrorByKey((prev) => ({ ...prev, [rowKey]: e.message || 'Estimate failed.' }))
     } finally {
       setEstimatingKey('')
+    }
+  }
+
+  async function handleEstimateRiskProbability() {
+    if (!token || !payload) return
+    const events = Array.isArray(payload?.ambee?.result) ? payload.ambee.result : []
+    if (!events.length) {
+      setRiskError('No events available in the current history response.')
+      return
+    }
+    setRiskLoading(true)
+    setRiskError('')
+    try {
+      const res = await fetch(`${BASE_URL}/api/ai/disasters/estimate-risk-probability`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          events,
+          geocode: payload.geocode || {},
+          from: payload.from,
+          to: payload.to,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Failed to estimate risk probability.')
+      setRiskEstimate(data)
+    } catch (e) {
+      setRiskError(e.message || 'Risk probability estimate failed.')
+    } finally {
+      setRiskLoading(false)
     }
   }
 
@@ -390,6 +429,40 @@ export default function DisastersHistoryPage() {
                   {ambee.page != null && ` · Page ${ambee.page}`}
                   {ambee.hasNextPage ? ' · More pages available' : ''}
                 </p>
+              )}
+              {rows.length > 0 && (
+                <div className="disasters-probability-box">
+                  <button
+                    type="button"
+                    className="btn-ed btn-ed-outline disasters-estimate-prob-btn"
+                    onClick={() => void handleEstimateRiskProbability()}
+                    disabled={riskLoading}
+                  >
+                    {riskLoading ? 'Estimating risk…' : 'Estimate risk probability'}
+                  </button>
+                  {riskEstimate?.estimate && (
+                    <div className="disasters-probability-result">
+                      <div>
+                        Probability: <strong>{riskEstimate.estimate.risk_probability_pct}%</strong>
+                        {' · '}
+                        Level: <strong>{riskEstimate.estimate.risk_level}</strong>
+                        {' · '}
+                        Confidence: <strong>{riskEstimate.estimate.confidence_pct}%</strong>
+                      </div>
+                      {Array.isArray(riskEstimate.estimate.top_drivers) && riskEstimate.estimate.top_drivers.length > 0 && (
+                        <ul className="disasters-probability-drivers">
+                          {riskEstimate.estimate.top_drivers.map((d) => (
+                            <li key={d}>{d}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {riskEstimate.estimate.rationale && (
+                        <div className="disasters-probability-rationale">{riskEstimate.estimate.rationale}</div>
+                      )}
+                    </div>
+                  )}
+                  {riskError && <div className="field-error">{riskError}</div>}
+                </div>
               )}
               {rows.length ? (
                 <div className="fa-table-wrap disasters-table-wrap">
