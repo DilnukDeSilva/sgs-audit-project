@@ -3,6 +3,7 @@ import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -265,6 +266,198 @@ def _build_disaster_impact_prompt(event: dict, working_days_year: int) -> str:
         '  "reason": "<max 180 chars>"\n'
         "}"
     )
+
+
+def _parse_loose_datetime(val: Any):
+    """Parse mixed datetime formats from upstream APIs."""
+    if not val:
+        return None
+    text = str(val).strip()
+    if not text:
+        return None
+    # Common variants: "YYYY-MM-DD HH:MM:SS", ISO with Z, ISO with offset.
+    candidates = [
+        text,
+        text.replace(" ", "T"),
+        text.replace("Z", "+00:00"),
+        text.replace(" ", "T").replace("Z", "+00:00"),
+    ]
+    for c in candidates:
+        try:
+            dt = datetime.fromisoformat(c)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            continue
+    return None
+
+
+def _severity_weight(level: str) -> float:
+    v = (level or "").strip().lower()
+    if "very high" in v or "extreme" in v:
+        return 1.0
+    if "high" in v:
+        return 0.8
+    if "moderate" in v or "medium" in v:
+        return 0.55
+    if "low" in v:
+        return 0.28
+    return 0.4
+
+
+def _alert_weight(level: str) -> float:
+    v = (level or "").strip().lower()
+    if "red" in v:
+        return 0.95
+    if "orange" in v:
+        return 0.7
+    if "yellow" in v:
+        return 0.45
+    if "green" in v:
+        return 0.2
+    return 0.35
+
+
+def _event_type_weight(event_type: str) -> float:
+    et = (event_type or "").strip().upper()
+    weights = {
+        "WF": 0.75,        # Wildfire
+        "TC": 0.9,         # Tropical cyclone
+        "FL": 0.78,        # Flood
+        "EQ": 0.92,        # Earthquake
+        "TS": 0.82,        # Tsunami
+        "VO": 0.85,        # Volcano
+        "DR": 0.55,        # Drought
+        "ST": 0.68,        # Storm/severe weather
+        "MISC": 0.35,
+    }
+    return float(weights.get(et, 0.45))
+
+
+def _derive_window_risk_baseline(events: list[dict]):
+    """
+    Deterministic baseline probability from event frequency, severity,
+    event types, and recency.
+    """
+    now = datetime.now(timezone.utc)
+    if not events:
+        return {
+            "risk_probability_pct": 3,
+            "confidence_pct": 35,
+            "metrics": {
+                "event_count": 0,
+                "aggregate_signal": 0.0,
+                "frequency_signal": 0.0,
+            },
+        }
+
+    weighted_sum = 0.0
+    for ev in events:
+        sev_w = _severity_weight(ev.get("proximity_severity_level"))
+        alert_w = _alert_weight(ev.get("default_alert_levels"))
+        type_w = _event_type_weight(ev.get("event_type"))
+
+        raw_signal = (0.45 * sev_w) + (0.2 * alert_w) + (0.35 * type_w)
+
+        ev_time = _parse_loose_datetime(ev.get("date") or ev.get("created_time"))
+        if ev_time is None:
+            recency = 0.65
+        else:
+            age_days = max(0.0, (now - ev_time).total_seconds() / 86400.0)
+            if age_days <= 7:
+                recency = 1.0
+            elif age_days <= 30:
+                recency = 0.82
+            elif age_days <= 90:
+                recency = 0.65
+            elif age_days <= 180:
+                recency = 0.5
+            else:
+                recency = 0.35
+
+        weighted_sum += raw_signal * recency
+
+    aggregate_signal = weighted_sum / float(len(events))
+    # Saturate around 30 events so bursts don't push to 100 too quickly.
+    frequency_signal = min(1.0, len(events) / 30.0)
+
+    baseline = ((aggregate_signal * 0.62) + (frequency_signal * 0.38)) * 100.0
+    baseline_pct = int(round(max(0.0, min(100.0, baseline))))
+    confidence_pct = int(round(min(90.0, 38.0 + (len(events) * 1.8))))
+
+    return {
+        "risk_probability_pct": baseline_pct,
+        "confidence_pct": confidence_pct,
+        "metrics": {
+            "event_count": len(events),
+            "aggregate_signal": round(aggregate_signal, 4),
+            "frequency_signal": round(frequency_signal, 4),
+        },
+    }
+
+
+def _build_disaster_probability_prompt(
+    geocode: dict,
+    from_utc: str,
+    to_utc: str,
+    events: list[dict],
+    baseline_pct: int,
+):
+    # Keep payload compact for faster/cheaper inference.
+    compact_events = []
+    for ev in events[:60]:
+        compact_events.append({
+            "event_type": ev.get("event_type"),
+            "severity": ev.get("proximity_severity_level"),
+            "alert": ev.get("default_alert_levels"),
+            "date": ev.get("date") or ev.get("created_time"),
+            "event_name": ev.get("event_name"),
+        })
+
+    context = {
+        "location": {
+            "name": geocode.get("name"),
+            "state": geocode.get("state"),
+            "country": geocode.get("country"),
+            "lat": geocode.get("lat"),
+            "lng": geocode.get("lng"),
+        },
+        "window_utc": {"from": from_utc, "to": to_utc},
+        "event_count": len(events),
+        "baseline_probability_pct": baseline_pct,
+        "events_sample": compact_events,
+    }
+    return (
+        "Estimate the probability (%) of a meaningful disaster-related operational risk "
+        "for this location in the near term, using event history context below.\n\n"
+        f"Context JSON:\n{json.dumps(context, ensure_ascii=True)}\n\n"
+        "Rules:\n"
+        "1) Return JSON only.\n"
+        "2) risk_probability_pct must be integer 0..100.\n"
+        "3) confidence_pct must be integer 0..100.\n"
+        "4) risk_level must be one of: Low, Medium, High, Very High.\n"
+        "5) top_drivers: 2-4 short strings.\n"
+        "6) rationale: max 220 chars.\n\n"
+        "Output schema:\n"
+        "{\n"
+        '  "risk_probability_pct": <integer>,\n'
+        '  "confidence_pct": <integer>,\n'
+        '  "risk_level": "<Low|Medium|High|Very High>",\n'
+        '  "top_drivers": ["...", "..."],\n'
+        '  "rationale": "..."\n'
+        "}"
+    )
+
+
+def _risk_level_from_pct(pct: int) -> str:
+    if pct >= 75:
+        return "Very High"
+    if pct >= 55:
+        return "High"
+    if pct >= 30:
+        return "Medium"
+    return "Low"
 
 
 # ---------------------------------------------------------------------------
@@ -545,4 +738,147 @@ def estimate_disaster_impact_days():
             "impact_ratio_percent": round(ratio * 100, 2),
             "reason": reason,
         },
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/ai/disasters/estimate-risk-probability
+# Body: { events: [...], geocode?: {...}, from?: "...", to?: "..." }
+# ---------------------------------------------------------------------------
+@ai_bp.post("/disasters/estimate-risk-probability")
+@jwt_required()
+def estimate_disaster_risk_probability():
+    body = request.get_json(silent=True) or {}
+    events = body.get("events")
+    if not isinstance(events, list):
+        return jsonify({"message": "events (array) is required in JSON body."}), 400
+
+    geocode = body.get("geocode") if isinstance(body.get("geocode"), dict) else {}
+    from_utc = str(body.get("from") or "").strip()
+    to_utc = str(body.get("to") or "").strip()
+
+    # Keep only event-like dict rows.
+    clean_events = [ev for ev in events if isinstance(ev, dict)]
+    baseline = _derive_window_risk_baseline(clean_events)
+    baseline_pct = int(baseline["risk_probability_pct"])
+    baseline_conf = int(baseline["confidence_pct"])
+
+    # If no events, deterministic baseline is enough.
+    if not clean_events:
+        return jsonify({
+            "model": None,
+            "method": "baseline_only",
+            "location": {
+                "name": geocode.get("name"),
+                "state": geocode.get("state"),
+                "country": geocode.get("country"),
+                "lat": geocode.get("lat"),
+                "lng": geocode.get("lng"),
+            },
+            "window_utc": {"from": from_utc or None, "to": to_utc or None},
+            "estimate": {
+                "risk_probability_pct": baseline_pct,
+                "confidence_pct": baseline_conf,
+                "risk_level": _risk_level_from_pct(baseline_pct),
+                "top_drivers": ["No qualifying disaster history rows in selected window."],
+                "rationale": "Probability is baseline-only due to missing events.",
+                "event_count": 0,
+            },
+            "baseline": baseline,
+        }), 200
+
+    try:
+        client = _get_groq_client()
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 503
+
+    model_name = "llama-3.1-8b-instant"
+    ai_raw = ""
+    ai_parsed = None
+    try:
+        prompt = _build_disaster_probability_prompt(
+            geocode=geocode,
+            from_utc=from_utc,
+            to_utc=to_utc,
+            events=clean_events,
+            baseline_pct=baseline_pct,
+        )
+        chat = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a disaster risk analyst. "
+                        "Return strict JSON only. No markdown."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.15,
+            max_tokens=300,
+        )
+        ai_raw = (chat.choices[0].message.content or "").strip()
+        start = ai_raw.find("{")
+        end = ai_raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            ai_parsed = json.loads(ai_raw[start:end + 1])
+    except Exception:
+        ai_parsed = None
+
+    if isinstance(ai_parsed, dict):
+        try:
+            ai_pct = int(round(float(ai_parsed.get("risk_probability_pct", baseline_pct))))
+        except Exception:
+            ai_pct = baseline_pct
+        ai_pct = max(0, min(100, ai_pct))
+
+        try:
+            ai_conf = int(round(float(ai_parsed.get("confidence_pct", baseline_conf))))
+        except Exception:
+            ai_conf = baseline_conf
+        ai_conf = max(0, min(100, ai_conf))
+
+        # Blend deterministic baseline and AI judgement for stability.
+        final_pct = int(round((baseline_pct * 0.6) + (ai_pct * 0.4)))
+        final_conf = int(round((baseline_conf * 0.55) + (ai_conf * 0.45)))
+        risk_level = str(ai_parsed.get("risk_level") or "").strip() or _risk_level_from_pct(final_pct)
+        if risk_level not in {"Low", "Medium", "High", "Very High"}:
+            risk_level = _risk_level_from_pct(final_pct)
+
+        drivers = ai_parsed.get("top_drivers")
+        if not isinstance(drivers, list):
+            drivers = []
+        drivers = [str(x).strip() for x in drivers if str(x).strip()][:4]
+
+        rationale = str(ai_parsed.get("rationale") or "").strip()[:220]
+        if not rationale:
+            rationale = "Combined baseline and AI judgement from event frequency, severity, and recency."
+    else:
+        final_pct = baseline_pct
+        final_conf = baseline_conf
+        risk_level = _risk_level_from_pct(final_pct)
+        drivers = ["AI parse fallback: used deterministic baseline only."]
+        rationale = "Model output was not usable JSON; baseline estimate returned."
+
+    return jsonify({
+        "model": model_name,
+        "method": "baseline_plus_ai" if isinstance(ai_parsed, dict) else "baseline_only_fallback",
+        "location": {
+            "name": geocode.get("name"),
+            "state": geocode.get("state"),
+            "country": geocode.get("country"),
+            "lat": geocode.get("lat"),
+            "lng": geocode.get("lng"),
+        },
+        "window_utc": {"from": from_utc or None, "to": to_utc or None},
+        "estimate": {
+            "risk_probability_pct": final_pct,
+            "confidence_pct": final_conf,
+            "risk_level": risk_level,
+            "top_drivers": drivers,
+            "rationale": rationale,
+            "event_count": len(clean_events),
+        },
+        "baseline": baseline,
     }), 200

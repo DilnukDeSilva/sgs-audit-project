@@ -983,15 +983,22 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
       ) : (
         <div className="fa-table-wrap">
           <table className="fa-table">
+            <colgroup>
+              <col />
+              <col />
+              <col className="fa-col-locations" />
+              <col />
+              <col />
+              <col />
+            </colgroup>
             <thead>
               <tr>
-                <th>Type of Asset</th>
-                <th className="fa-num">Total Value</th>
+                <th className="fa-type-col">Type of Asset</th>
+                <th className="fa-num fa-total-value-col">Total Value</th>
                 <th className="fa-loc-col">Locations</th>
-                <th>Valuation Method</th>
-                <th className="fa-num">Rows</th>
+                <th className="fa-valuation-col">Valuation Method</th>
+                <th className="fa-num fa-rows-col">Rows</th>
                 <th className="fa-risks-col">Applying risks</th>
-                <th className="fa-ai-col">AI summary</th>
               </tr>
             </thead>
             <tbody>
@@ -1007,8 +1014,37 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                 return (
                   <Fragment key={`${typeKey}-${i}`}>
                     <tr>
-                      <td className="fa-type">{row.type}</td>
-                      <td className="fa-num">{fmt(row.total_value)}</td>
+                      <td className="fa-type fa-type-col">
+                        {row.type}
+                        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn-ai-row"
+                            style={{ width: 'auto', maxWidth: 'none' }}
+                            onClick={() => onAiForType(typeKey)}
+                            disabled={!hasOps || rowAiLoading === typeKey}
+                            title={!hasOps ? 'Add operational usage for this asset type first' : 'Summarise operational usage with AI'}
+                          >
+                            {rowAiLoading === typeKey ? (
+                              <><span className="btn-spinner" /> Running…</>
+                            ) : (
+                              'AI'
+                            )}
+                          </button>
+                          {showAiRow ? (
+                            <button
+                              type="button"
+                              className="fa-ai-toggle"
+                              onClick={() => toggleAiPanel(typeKey)}
+                              disabled={aiBusy}
+                              title={aiBusy ? 'Wait for generation to finish' : aiExpanded ? 'Hide summary' : 'Show summary'}
+                            >
+                              {aiExpanded ? '▼ Collapse' : '▶ Expand'}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="fa-num fa-total-value-col">{fmt(row.total_value)}</td>
                       <td className="fa-location-cell">
                         {locs.length ? (
                           <ol className="fa-location-list" title="One address or site per line — use for geocoding">
@@ -1024,6 +1060,7 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                               >
                                 <div className="fa-location-block">
                                   <div className="fa-location-row">
+                                    <span className="fa-location-text">{loc}</span>
                                     <div className="fa-location-actions">
                                       <button
                                         type="button"
@@ -1082,16 +1119,15 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                                       >
                                         Weather
                                       </button>
+                                      <button
+                                        type="button"
+                                        className={`fa-done-btn fa-location-done-btn${isDone ? ' is-done' : ''}`}
+                                        title={isDone ? 'Mark this location as not done' : 'Mark this location as done'}
+                                        onClick={() => toggleLocationDone(typeKey, li)}
+                                      >
+                                        {isDone ? 'Done' : 'Mark Done'}
+                                      </button>
                                     </div>
-                                    <span className="fa-location-text">{loc}</span>
-                                    <button
-                                      type="button"
-                                      className={`fa-done-btn fa-location-done-btn${isDone ? ' is-done' : ''}`}
-                                      title={isDone ? 'Mark this location as not done' : 'Mark this location as done'}
-                                      onClick={() => toggleLocationDone(typeKey, li)}
-                                    >
-                                      {isDone ? 'Done' : 'Mark Done'}
-                                    </button>
                                   </div>
                                   {geocodeState[rowKey]?.status === 'ok' &&
                                     geocodeState[rowKey].lat != null &&
@@ -1140,8 +1176,8 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                           '—'
                         )}
                       </td>
-                      <td>{listOrDash(row.valuation_methods)}</td>
-                      <td className="fa-num">{row.row_count}</td>
+                      <td className="fa-valuation-col">{listOrDash(row.valuation_methods)}</td>
+                      <td className="fa-num fa-rows-col">{row.row_count}</td>
                       <td className="fa-risks-cell">
                         {applyingRisks.length ? (
                           <ul className="fa-risks-list">
@@ -1153,37 +1189,13 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                           '—'
                         )}
                       </td>
-                      <td className="fa-ai-cell">
-                        <button
-                          type="button"
-                          className="btn-ai-row"
-                          onClick={() => onAiForType(typeKey)}
-                          disabled={!hasOps || rowAiLoading === typeKey}
-                          title={!hasOps ? 'Add operational usage for this asset type first' : 'Summarise operational usage with AI'}
-                        >
-                          {rowAiLoading === typeKey ? (
-                            <><span className="btn-spinner" /> Running…</>
-                          ) : (
-                            'AI'
-                          )}
-                        </button>
-                      </td>
                     </tr>
-                    {showAiRow ? (
+                    {showAiRow && aiExpanded ? (
                       <tr className="fa-ai-subrow">
-                        <td colSpan={7}>
+                        <td colSpan={6}>
                           <div className="fa-ai-panel">
                             <div className="fa-ai-panel-toolbar">
                               <span className="fa-ai-panel-title">AI summary</span>
-                              <button
-                                type="button"
-                                className="fa-ai-toggle"
-                                onClick={() => toggleAiPanel(typeKey)}
-                                disabled={aiBusy}
-                                title={aiBusy ? 'Wait for generation to finish' : aiExpanded ? 'Hide summary' : 'Show summary'}
-                              >
-                                {aiExpanded ? '▼ Collapse' : '▶ Expand'}
-                              </button>
                             </div>
                             {aiExpanded ? (
                               <>
@@ -1225,10 +1237,9 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
             <tfoot>
               <tr>
                 <td><strong>Total</strong></td>
-                <td className="fa-num"><strong>{fmt(summary.total_value)}</strong></td>
+                <td className="fa-num fa-total-value-col"><strong>{fmt(summary.total_value)}</strong></td>
                 <td colSpan={2} />
-                <td className="fa-num"><strong>{summary.total_rows}</strong></td>
-                <td />
+                <td className="fa-num fa-rows-col"><strong>{summary.total_rows}</strong></td>
                 <td />
               </tr>
             </tfoot>

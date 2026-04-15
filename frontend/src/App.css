@@ -586,15 +586,23 @@
 /* ── Fixed Assets table ──────────────────────────────────────────────────── */
 
 .fa-table-wrap {
+  /* Enough room for location lines + wrapped action buttons; tweak if needed */
+  --fa-locations-col-width: 600px;
+  --fa-table-border-color: color-mix(in srgb, var(--border) 55%, #374b20);
   overflow-x: auto;
   border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--fa-table-border-color);
 }
 
 .fa-table {
+  table-layout: fixed;
   width: 100%;
   border-collapse: collapse;
   font-size: 15px;
+}
+
+.fa-col-locations {
+  width: var(--fa-locations-col-width);
 }
 
 .fa-table th {
@@ -606,13 +614,13 @@
   text-transform: uppercase;
   padding: 10px 16px;
   text-align: left;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--fa-table-border-color);
   white-space: nowrap;
 }
 
 .fa-table td {
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--fa-table-border-color);
   color: var(--text);
   vertical-align: top;
   line-height: 1.45;
@@ -623,7 +631,7 @@
 .fa-table tbody tr:hover td { background: var(--accent-bg); }
 
 .fa-table tfoot td {
-  border-top: 2px solid var(--border);
+  border-top: 2px solid var(--fa-table-border-color);
   border-bottom: none;
   background: var(--code-bg);
   color: var(--text-h);
@@ -632,6 +640,30 @@
 
 .fa-type { font-weight: 600; color: var(--text-h) !important; }
 
+.fa-type-col {
+  width: 150px;
+  min-width: 130px;
+  max-width: 170px;
+}
+
+.fa-total-value-col {
+  width: 130px;
+  min-width: 110px;
+  max-width: 150px;
+}
+
+.fa-valuation-col {
+  width: 140px;
+  min-width: 120px;
+  max-width: 170px;
+}
+
+.fa-rows-col {
+  width: 80px;
+  min-width: 64px;
+  max-width: 96px;
+}
+
 .fa-num {
   text-align: right !important;
   font-variant-numeric: tabular-nums;
@@ -639,17 +671,19 @@
 }
 
 .fa-loc-col {
-  min-width: 200px;
-  max-width: 320px;
+  max-width: var(--fa-locations-col-width);
 }
 
 .fa-location-cell {
   vertical-align: top !important;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .fa-location-list {
   margin: 0;
-  padding-left: 1.35em;
+  padding-left: 1.1em;
+  max-width: 100%;
   font-size: 14px;
   line-height: 1.45;
   color: var(--text-h);
@@ -686,11 +720,15 @@
 
 .fa-location-block {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .fa-location-row {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 
@@ -704,6 +742,8 @@
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .fa-done-btn,
@@ -806,6 +846,39 @@
 
 .disasters-table-wrap {
   margin-top: 8px;
+}
+
+.disasters-probability-box {
+  margin: 0 0 12px;
+}
+
+.disasters-estimate-prob-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.disasters-probability-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-size: 12px;
+  color: var(--text-h);
+}
+
+.disasters-probability-drivers {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.disasters-probability-drivers li {
+  margin: 2px 0;
+}
+
+.disasters-probability-rationale {
+  margin-top: 6px;
+  color: var(--text-m);
 }
 
 .disasters-events-table {
@@ -954,7 +1027,8 @@
 }
 
 .fa-location-text {
-  flex: 1;
+  display: block;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1078,6 +1152,10 @@
   line-height: 1.35;
   vertical-align: top !important;
   color: var(--text-h);
+}
+
+.fa-table-wrap {
+  --fa-risks-col-width: 10px;
 }
 
 .fa-risks-list {
