@@ -20,6 +20,8 @@ def connect_db(app):
     _db["users"].create_index("email", unique=True)
     _db["users"].create_index("username", unique=True)
     _db["risks"].create_index("user_id", unique=True)
+    _db["user_map_locations"].create_index("user_id", unique=True)
+    _db["user_map_regions"].create_index("user_id", unique=True)
 
     app.logger.info(f"Connected to MongoDB database: {db_name}")
     return _db
