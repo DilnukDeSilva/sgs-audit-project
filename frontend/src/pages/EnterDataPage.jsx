@@ -747,6 +747,8 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
     }
     return loadDoneLocationMap()
   })
+  /** `${assetType}::${riskLabel}::${slot}` -> decimal string */
+  const [riskInputByKey, setRiskInputByKey] = useState({})
 
   useEffect(() => {
     try {
@@ -825,6 +827,14 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
       ...prev,
       [typeKey]: !prev[typeKey],
     }))
+  }
+
+  function updateRiskDecimal(assetType, riskLabel, slot, rawValue) {
+    const key = `${assetType}::${riskLabel}::${slot}`
+    // Allow: "", "12", "12.", ".5", "0.75"
+    const next = String(rawValue)
+    if (!/^\d*\.?\d*$/.test(next)) return
+    setRiskInputByKey((prev) => ({ ...prev, [key]: next }))
   }
 
   const fmt = (n) =>
@@ -1181,9 +1191,42 @@ function FixedAssetsTable({ result, riskRows = [], rowAiByType = {}, rowAiLoadin
                       <td className="fa-risks-cell">
                         {applyingRisks.length ? (
                           <ul className="fa-risks-list">
-                            {applyingRisks.map((label) => (
-                              <li key={label}>{label}</li>
-                            ))}
+                            {applyingRisks.map((label) => {
+                              return (
+                                <li key={label} className="fa-risk-input-row">
+                                  <span className="fa-risk-input-label">{label}</span>
+                                  <div className="fa-risk-decimal-group">
+                                    {[0, 1, 2, 3, 4].map((slot) => {
+                                      const riskKey = `${typeKey}::${label}::${slot}`
+                                      return (
+                                        <input
+                                          key={riskKey}
+                                          type="text"
+                                          inputMode="decimal"
+                                          className="fa-risk-decimal-input"
+                                          placeholder="0.00"
+                                          value={riskInputByKey[riskKey] || ''}
+                                          onChange={(e) => updateRiskDecimal(typeKey, label, slot, e.target.value)}
+                                          aria-label={`Decimal value ${slot + 1} for ${label}`}
+                                        />
+                                      )
+                                    })}
+                                    <div className="fa-risk-final-wrap">
+                                      <span className="fa-risk-final-label">Final</span>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        className="fa-risk-decimal-input fa-risk-final-input"
+                                        placeholder="0.00"
+                                        value={riskInputByKey[`${typeKey}::${label}::final`] || ''}
+                                        onChange={(e) => updateRiskDecimal(typeKey, label, 'final', e.target.value)}
+                                        aria-label={`Final decimal value for ${label}`}
+                                      />
+                                    </div>
+                                  </div>
+                                </li>
+                              )
+                            })}
                           </ul>
                         ) : (
                           '—'

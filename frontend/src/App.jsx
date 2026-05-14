@@ -8,6 +8,8 @@ import RiskTablePage from './pages/RiskTablePage'
 import WeatherLocationPage from './pages/WeatherLocationPage'
 import DisastersLocationPage from './pages/DisastersLocationPage'
 import DisastersHistoryPage from './pages/DisastersHistoryPage'
+import MapPage from './pages/MapPage'
+import MapNewPage from './pages/MapNewPage'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -57,6 +59,14 @@ export default function App() {
           <Route
             path="/disasters-history"
             element={<ProtectedRoute><DisastersHistoryPage /></ProtectedRoute>}
+          />
+          <Route
+            path="/map"
+            element={<ProtectedRoute><MapPage /></ProtectedRoute>}
+          />
+          <Route
+            path="/map-new"
+            element={<ProtectedRoute><MapNewPage /></ProtectedRoute>}
           />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

@@ -165,6 +165,18 @@ export default function DashboardPage() {
               >
                 Risk Table
               </button>
+              <button
+                className="btn-ed btn-ed-outline"
+                onClick={() => navigate('/map')}
+              >
+                Physical Risk Map
+              </button>
+              <button
+                className="btn-ed btn-ed-outline"
+                onClick={() => navigate('/map-new')}
+              >
+                Transition Risk Map
+              </button>
             </div>
           </div>
         </section>

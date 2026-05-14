@@ -50,6 +50,7 @@ def create_app():
     from routes.risks import risks_bp
     from routes.weather import weather_bp
     from routes.disasters import disasters_bp
+    from routes.map import map_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(templates_bp)
     app.register_blueprint(data_bp)
@@ -57,6 +58,7 @@ def create_app():
     app.register_blueprint(risks_bp)
     app.register_blueprint(weather_bp)
     app.register_blueprint(disasters_bp)
+    app.register_blueprint(map_bp)
 
     # ------------------------------------------------------------------
     # Core routes
